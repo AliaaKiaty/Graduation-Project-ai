@@ -1,0 +1,45 @@
+# Core FastAPI and Server
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+pyngrok==7.0.0
+
+# Authentication
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-multipart==0.0.6
+
+# Database
+sqlalchemy==2.0.25
+
+# Rate Limiting
+slowapi==0.1.9
+
+# ML - Shared
+numpy==1.26.3
+pandas==2.1.4
+scikit-learn==1.4.0
+pillow==10.2.0
+joblib==1.3.2
+
+# ML - Image (TensorFlow)
+tensorflow==2.15.0
+
+# ML - NLP/LLM (PyTorch and Transformers)
+torch==2.1.2
+transformers==4.36.2
+peft==0.7.1
+bitsandbytes==0.41.3
+accelerate==0.25.0
+
+# Utilities
+python-dotenv==1.0.0
+nest-asyncio==1.6.0
+
+# Async support
+aiofiles==23.2.1
+httpx==0.26.0
+
+# Note for Windows users:
+# bitsandbytes may require additional setup on Windows.
+# See: https://github.com/TimDettmers/bitsandbytes/issues/822
+# Alternative: use bitsandbytes-windows package
