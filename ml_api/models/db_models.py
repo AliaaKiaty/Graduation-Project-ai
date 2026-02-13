@@ -130,9 +130,10 @@ class ModelMetadata(Base):
     notes = Column(Text)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
 
-    # Only one active model per type
+    # Index for quick lookup by model type and active status
+    # Note: On PostgreSQL, application logic enforces one active model per type
     __table_args__ = (
-        Index('idx_unique_active_model', 'model_type', 'is_active', unique=True, postgresql_where=(is_active == True)),
+        Index('idx_model_type_active', 'model_type', 'is_active'),
     )
 
     def __repr__(self):

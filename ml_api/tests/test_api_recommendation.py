@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 from unittest.mock import patch, MagicMock
 from jose import jwt
 import numpy as np
@@ -33,7 +34,7 @@ def _make_token(user_id: str, roles: list = None) -> str:
 @pytest.fixture(scope="function")
 def test_db():
     """Create test database and populate with sample data"""
-    engine = create_engine("sqlite:///:memory:")
+    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     Base.metadata.create_all(engine)
 
     TestingSessionLocal = sessionmaker(bind=engine)

@@ -5,6 +5,7 @@ Only creates ML-specific tables (product_embeddings, model_metadata)
 """
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
+from sqlalchemy.pool import StaticPool
 from . import config
 
 
@@ -12,14 +13,19 @@ class Base(DeclarativeBase):
     """Base class for SQLAlchemy models"""
     pass
 
-# Create SQLAlchemy engine with PostgreSQL connection pooling
-engine = create_engine(
-    config.DATABASE_URL,
-    pool_size=config.DB_POOL_SIZE,
-    max_overflow=config.DB_MAX_OVERFLOW,
-    pool_timeout=config.DB_POOL_TIMEOUT,
-    pool_recycle=config.DB_POOL_RECYCLE,
-)
+# Create SQLAlchemy engine (pool params only for non-SQLite)
+_engine_kwargs = {}
+if config.DATABASE_URL.startswith("sqlite"):
+    _engine_kwargs["connect_args"] = {"check_same_thread": False}
+    _engine_kwargs["poolclass"] = StaticPool
+else:
+    _engine_kwargs.update(
+        pool_size=config.DB_POOL_SIZE,
+        max_overflow=config.DB_MAX_OVERFLOW,
+        pool_timeout=config.DB_POOL_TIMEOUT,
+        pool_recycle=config.DB_POOL_RECYCLE,
+    )
+engine = create_engine(config.DATABASE_URL, **_engine_kwargs)
 
 # Create SessionLocal class
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
