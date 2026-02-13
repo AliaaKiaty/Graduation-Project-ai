@@ -1,24 +1,24 @@
 """
 Database configuration and session management
+Connects to the real .NET backend database (read-only for .NET tables)
+Only creates ML-specific tables (product_embeddings, model_metadata)
 """
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
-from pathlib import Path
-from .config import DATABASE_URL, DATABASE_PATH
+from . import config
 
 
 class Base(DeclarativeBase):
     """Base class for SQLAlchemy models"""
     pass
 
-# Create data directory if it doesn't exist
-data_dir = Path(DATABASE_PATH).parent
-data_dir.mkdir(parents=True, exist_ok=True)
-
-# Create SQLAlchemy engine
+# Create SQLAlchemy engine with PostgreSQL connection pooling
 engine = create_engine(
-    DATABASE_URL,
-    connect_args={"check_same_thread": False}  # Needed for SQLite
+    config.DATABASE_URL,
+    pool_size=config.DB_POOL_SIZE,
+    max_overflow=config.DB_MAX_OVERFLOW,
+    pool_timeout=config.DB_POOL_TIMEOUT,
+    pool_recycle=config.DB_POOL_RECYCLE,
 )
 
 # Create SessionLocal class
@@ -39,8 +39,16 @@ def get_db():
 
 def init_db():
     """
-    Initialize database - create all tables.
-    Call this once when starting the application.
+    Initialize database — create only ML-specific tables.
+    Does NOT create or alter .NET-managed tables (Products, ProductCategories, UserInteraction).
+    Uses checkfirst=True to avoid errors if tables already exist.
     """
-    from .auth.models import User  # Import all models to register them
-    Base.metadata.create_all(bind=engine)
+    # Import ML-owned models to register them with SQLAlchemy
+    from .models.db_models import ProductEmbedding, ModelMetadata
+
+    # Only create ML-owned tables (product_embeddings, model_metadata)
+    ml_tables = [
+        ProductEmbedding.__table__,
+        ModelMetadata.__table__,
+    ]
+    Base.metadata.create_all(bind=engine, tables=ml_tables, checkfirst=True)

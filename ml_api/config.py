@@ -1,5 +1,6 @@
 """
 Configuration settings for ML API
+Reads from real .NET backend database, validates external JWTs
 """
 import os
 from pathlib import Path
@@ -7,18 +8,39 @@ from pathlib import Path
 # Base directory
 BASE_DIR = Path(__file__).resolve().parent
 
-# JWT Settings
+# =============================================================================
+# External JWT Validation Settings
+# The ML API trusts JWTs issued by the .NET backend (no token creation here)
+# =============================================================================
 JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "change-this-secret-key-in-production")
-JWT_ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
-REFRESH_TOKEN_EXPIRE_DAYS = 7
+JWT_ALGORITHMS = os.environ.get("JWT_ALGORITHMS", "HS256").split(",")
+JWT_ISSUER = os.environ.get("JWT_ISSUER", None)  # e.g. "https://your-dotnet-app.com"
+JWT_AUDIENCE = os.environ.get("JWT_AUDIENCE", None)  # e.g. "ml-api"
+JWT_USER_ID_CLAIM = os.environ.get("JWT_USER_ID_CLAIM", "sub")  # Claim containing user ID
+JWT_ROLE_CLAIM = os.environ.get("JWT_ROLE_CLAIM", "role")  # Claim containing user roles
+JWT_ADMIN_ROLE = os.environ.get("JWT_ADMIN_ROLE", "Admin")  # Role value for admin users
 
+# =============================================================================
 # Database Settings
-DATABASE_PATH = os.environ.get("DATABASE_PATH", str(BASE_DIR / "data" / "users.db"))
-# Convert Windows backslashes to forward slashes for SQLite URL
-DATABASE_URL = f"sqlite:///{DATABASE_PATH.replace(chr(92), '/')}"
+# =============================================================================
+DATABASE_URL = os.environ.get(
+    "DATABASE_URL",
+    "postgresql://postgres:password@localhost:5432/ml_recommendation"
+)
 
+# Heroku uses postgres:// but SQLAlchemy requires postgresql://
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
+# Connection pool settings
+DB_POOL_SIZE = int(os.environ.get("DB_POOL_SIZE", "5"))
+DB_MAX_OVERFLOW = int(os.environ.get("DB_MAX_OVERFLOW", "10"))
+DB_POOL_TIMEOUT = int(os.environ.get("DB_POOL_TIMEOUT", "30"))
+DB_POOL_RECYCLE = int(os.environ.get("DB_POOL_RECYCLE", "3600"))
+
+# =============================================================================
 # Model Paths
+# =============================================================================
 MODELS_DIR = Path(os.environ.get("MODELS_DIR", str(BASE_DIR / "saved_models")))
 
 # Recommendation Model Paths
@@ -48,7 +70,9 @@ LORA_ADAPTER_PATH = os.environ.get("LORA_ADAPTER_PATH", str(CHATBOT_DIR / "llama
 # HuggingFace Token
 HF_TOKEN = os.environ.get("HF_TOKEN", None)
 
+# =============================================================================
 # API Settings
+# =============================================================================
 API_TITLE = "ML Models API"
 API_DESCRIPTION = "Machine Learning Models API for Recommendation, Image Similarity, and Arabic Chatbot"
 API_VERSION = "1.0.0"
@@ -75,8 +99,3 @@ BUTTERFLY_CLASSES = [
     'Vanessa atalanta',
     'Vanessa cardui'
 ]
-
-# Admin User (for initialization)
-ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "admin")
-ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@api.local")
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "change_this_password")

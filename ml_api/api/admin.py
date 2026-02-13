@@ -1,0 +1,280 @@
+"""
+Admin API router
+Provides admin-only endpoints for model retraining and management
+"""
+from fastapi import APIRouter, Depends, HTTPException, status, Request, BackgroundTasks
+from sqlalchemy.orm import Session
+from typing import Annotated, List
+import subprocess
+import sys
+from datetime import datetime
+
+from ..auth import require_admin, TokenUser
+from ..database import get_db
+from ..models.db_models import ModelMetadata
+from ..limiter import limiter
+from .. import config
+
+router = APIRouter()
+
+
+# ============================================================================
+# MODEL MANAGEMENT ENDPOINTS
+# ============================================================================
+
+@router.post("/retrain", status_code=status.HTTP_202_ACCEPTED)
+@limiter.limit("3/hour")  # Strict rate limit for expensive operation
+async def trigger_retraining(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    current_user: Annotated[TokenUser, Depends(require_admin)],
+    db: Session = Depends(get_db)
+):
+    """
+    Trigger ML model retraining from database.
+
+    Requires admin authentication.
+
+    IMPORTANT: This is a long-running operation that retrains:
+    - SVD collaborative filtering model
+    - TF-IDF + KMeans content-based model
+
+    The retraining runs in the background. The API will return immediately
+    with status 202 (Accepted). Check logs or /admin/models endpoint to
+    verify completion.
+
+    Rate limit: 3 requests per hour per user.
+
+    Returns:
+        Status message indicating retraining has started
+    """
+    def run_retraining():
+        """Background task to run retraining script"""
+        try:
+            # Run the retraining script as a subprocess
+            result = subprocess.run(
+                [sys.executable, "-m", "ml_api.scripts.retrain_models"],
+                capture_output=True,
+                text=True,
+                timeout=3600  # 1 hour timeout
+            )
+
+            if result.returncode != 0:
+                print(f"Retraining failed with exit code {result.returncode}")
+                print(f"STDOUT: {result.stdout}")
+                print(f"STDERR: {result.stderr}")
+            else:
+                print("Retraining completed successfully")
+                print(f"STDOUT: {result.stdout}")
+
+        except subprocess.TimeoutExpired:
+            print("Retraining timeout (exceeded 1 hour)")
+        except Exception as e:
+            print(f"Retraining error: {e}")
+
+    # Add background task
+    background_tasks.add_task(run_retraining)
+
+    return {
+        "message": "Model retraining started",
+        "status": "in_progress",
+        "triggered_by": current_user.user_id,
+        "triggered_at": datetime.now().isoformat(),
+        "note": "This is a long-running operation. Check /admin/models to verify completion."
+    }
+
+
+@router.get("/models", response_model=List[dict])
+@limiter.limit("100/minute")
+async def list_model_metadata(
+    request: Request,
+    current_user: Annotated[TokenUser, Depends(require_admin)],
+    db: Session = Depends(get_db),
+    model_type: str = None,
+    is_active: bool = None
+):
+    """
+    List all trained model metadata.
+
+    Requires admin authentication.
+
+    Provides information about all trained models including:
+    - Model type (svd, tfidf_kmeans)
+    - Version (timestamp)
+    - Training date
+    - Evaluation metrics (RMSE, etc.)
+    - Training duration
+    - Active status
+
+    Args:
+        model_type: Optional filter by model type ("svd" or "tfidf_kmeans")
+        is_active: Optional filter by active status
+
+    Returns:
+        List of model metadata records
+    """
+    try:
+        # Build query
+        query = db.query(ModelMetadata)
+
+        # Apply filters
+        if model_type:
+            query = query.filter(ModelMetadata.model_type == model_type)
+
+        if is_active is not None:
+            query = query.filter(ModelMetadata.is_active == is_active)
+
+        # Order by training date (most recent first)
+        models = query.order_by(ModelMetadata.training_date.desc()).all()
+
+        # Format response
+        result = []
+        for model in models:
+            model_dict = {
+                "id": model.id,
+                "model_type": model.model_type,
+                "version": model.version,
+                "file_path": model.file_path,
+                "training_date": model.training_date.isoformat(),
+                "is_active": model.is_active,
+                "total_products": model.total_products,
+                "total_ratings": model.total_ratings,
+                "training_duration_seconds": model.training_duration_seconds,
+                "notes": model.notes,
+                "created_at": model.created_at.isoformat()
+            }
+
+            # Add type-specific metrics
+            if model.model_type == "svd":
+                model_dict["n_components"] = model.n_components
+                model_dict["rmse"] = float(model.rmse) if model.rmse else None
+                model_dict["precision_at_10"] = float(model.precision_at_10) if model.precision_at_10 else None
+                model_dict["recall_at_10"] = float(model.recall_at_10) if model.recall_at_10 else None
+                model_dict["ndcg_at_10"] = float(model.ndcg_at_10) if model.ndcg_at_10 else None
+                model_dict["coverage"] = float(model.coverage) if model.coverage else None
+
+            elif model.model_type == "tfidf_kmeans":
+                model_dict["n_clusters"] = model.n_clusters
+                model_dict["max_features"] = model.max_features
+
+            result.append(model_dict)
+
+        return result
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching model metadata: {str(e)}"
+        )
+
+
+@router.get("/models/{model_id}", response_model=dict)
+@limiter.limit("100/minute")
+async def get_model_metadata(
+    request: Request,
+    model_id: int,
+    current_user: Annotated[TokenUser, Depends(require_admin)],
+    db: Session = Depends(get_db)
+):
+    """
+    Get detailed metadata for a specific model.
+
+    Requires admin authentication.
+
+    Args:
+        model_id: Model metadata ID
+
+    Returns:
+        Detailed model metadata
+    """
+    try:
+        model = db.query(ModelMetadata).filter(ModelMetadata.id == model_id).first()
+
+        if not model:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Model with ID {model_id} not found"
+            )
+
+        # Format response
+        model_dict = {
+            "id": model.id,
+            "model_type": model.model_type,
+            "version": model.version,
+            "file_path": model.file_path,
+            "training_date": model.training_date.isoformat(),
+            "is_active": model.is_active,
+            "total_products": model.total_products,
+            "total_ratings": model.total_ratings,
+            "training_duration_seconds": model.training_duration_seconds,
+            "notes": model.notes,
+            "created_at": model.created_at.isoformat()
+        }
+
+        # Add type-specific metrics
+        if model.model_type == "svd":
+            model_dict["n_components"] = model.n_components
+            model_dict["rmse"] = float(model.rmse) if model.rmse else None
+            model_dict["precision_at_10"] = float(model.precision_at_10) if model.precision_at_10 else None
+            model_dict["recall_at_10"] = float(model.recall_at_10) if model.recall_at_10 else None
+            model_dict["ndcg_at_10"] = float(model.ndcg_at_10) if model.ndcg_at_10 else None
+            model_dict["coverage"] = float(model.coverage) if model.coverage else None
+
+        elif model.model_type == "tfidf_kmeans":
+            model_dict["n_clusters"] = model.n_clusters
+            model_dict["max_features"] = model.max_features
+
+        return model_dict
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching model metadata: {str(e)}"
+        )
+
+
+@router.delete("/models/{model_id}", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("100/minute")
+async def deactivate_model(
+    request: Request,
+    model_id: int,
+    current_user: Annotated[TokenUser, Depends(require_admin)],
+    db: Session = Depends(get_db)
+):
+    """
+    Deactivate a model (soft delete by setting is_active=False).
+
+    Requires admin authentication.
+
+    This does NOT delete the model files, only marks the model as inactive
+    in the database.
+
+    Args:
+        model_id: Model metadata ID
+
+    Returns:
+        No content (204)
+    """
+    try:
+        model = db.query(ModelMetadata).filter(ModelMetadata.id == model_id).first()
+
+        if not model:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Model with ID {model_id} not found"
+            )
+
+        # Soft delete (set is_active=False)
+        model.is_active = False
+        db.commit()
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error deactivating model: {str(e)}"
+        )

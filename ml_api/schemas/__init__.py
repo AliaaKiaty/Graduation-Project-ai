@@ -2,8 +2,8 @@
 Pydantic schemas module
 """
 from .recommendation import (
-    DatasetType,
     PopularItem,
+    PopularRequest,
     PopularResponse,
     CollaborativeItem,
     CollaborativeRequest,
@@ -11,6 +11,8 @@ from .recommendation import (
     ContentBasedItem,
     ContentBasedRequest,
     ContentBasedResponse,
+    ProductResponse,
+    CategoryResponse,
 )
 from .image import (
     SimilarImageItem,
@@ -25,8 +27,8 @@ from .chat import (
 )
 
 __all__ = [
-    "DatasetType",
     "PopularItem",
+    "PopularRequest",
     "PopularResponse",
     "CollaborativeItem",
     "CollaborativeRequest",
@@ -34,6 +36,8 @@ __all__ = [
     "ContentBasedItem",
     "ContentBasedRequest",
     "ContentBasedResponse",
+    "ProductResponse",
+    "CategoryResponse",
     "SimilarImageItem",
     "SimilarImagesResponse",
     "PredictionItem",

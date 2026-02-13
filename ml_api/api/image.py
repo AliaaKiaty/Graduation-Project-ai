@@ -5,7 +5,7 @@ Provides endpoints for visual similarity search and image classification
 from fastapi import APIRouter, Depends, HTTPException, status, Request, UploadFile, File, Query
 from typing import Annotated
 
-from ..auth import get_current_user, User
+from ..auth import get_current_user, TokenUser
 from ..models.image import ImageEngine
 from ..schemas.image import SimilarImagesResponse, ClassificationResponse
 from ..limiter import limiter
@@ -29,7 +29,7 @@ def get_image_engine() -> ImageEngine:
 @limiter.limit(config.RATE_LIMIT_GENERAL)
 async def find_similar_images(
     request: Request,
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[TokenUser, Depends(get_current_user)],
     file: UploadFile = File(..., description="Image file to search for"),
     top_k: int = Query(default=5, ge=1, le=20, description="Number of similar images to return"),
 ) -> SimilarImagesResponse:
@@ -107,7 +107,7 @@ async def find_similar_images(
 @limiter.limit(config.RATE_LIMIT_GENERAL)
 async def classify_image(
     request: Request,
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[TokenUser, Depends(get_current_user)],
     file: UploadFile = File(..., description="Image file to classify"),
     top_k: int = Query(default=5, ge=1, le=10, description="Number of top predictions to return"),
 ) -> ClassificationResponse:

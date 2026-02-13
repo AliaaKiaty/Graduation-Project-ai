@@ -1,170 +1,232 @@
 """
-Recommendation inference functions
-Implements three recommendation approaches: popularity, collaborative filtering, and content-based
+Recommendation inference functions (Database-backed version)
+Implements three recommendation approaches querying the real .NET backend database
+Uses hybrid architecture: ML models from files, product metadata from database
 """
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import numpy as np
+from sqlalchemy.orm import Session
+from sqlalchemy import func
 from .loader import ModelManager
+from ..database import SessionLocal
+from .db_models import Product, UserInteraction, ProductEmbedding, ProductCategory
 
 
 class RecommendationEngine:
     """
-    Recommendation engine with three approaches:
-    - Popularity-based recommendations
-    - SVD collaborative filtering
-    - TF-IDF + KMeans content-based filtering
+    Database-backed recommendation engine with three approaches:
+    - Popularity-based recommendations (from database UserInteraction table)
+    - SVD collaborative filtering (hybrid: correlation matrix from file, product data from DB)
+    - TF-IDF + KMeans content-based filtering (hybrid: models from file, products from DB)
     """
 
     def __init__(self):
         self.manager = ModelManager()
 
-    def get_popular_items(self, dataset: str = "english", top_n: int = 10) -> List[Dict[str, Any]]:
+    def get_popular_items(
+        self,
+        top_n: int = 10,
+        category_id: Optional[int] = None,
+        db: Optional[Session] = None
+    ) -> List[Dict[str, Any]]:
         """
-        Get most popular items based on rating counts.
+        Get most popular items based on rating counts from database.
 
         Args:
-            dataset: Dataset to use ("english" or "arabic")
             top_n: Number of top items to return
+            category_id: Optional category filter
+            db: Database session (created if not provided)
 
         Returns:
-            List of popular items with product_id and rating_count
-
-        Raises:
-            ValueError: If popularity counts are not loaded
+            List of popular items with product details and rating counts
         """
-        # Load dataset-specific model
-        model_key = f"popularity_counts_{dataset}"
-        popularity_counts = self.manager.get_model(model_key)
+        should_close_db = False
+        if db is None:
+            db = SessionLocal()
+            should_close_db = True
 
-        # Fall back to default if dataset-specific not available
-        if popularity_counts is None:
-            popularity_counts = self.manager.get_model("popularity_counts")
+        try:
+            # Build query: count ratings per product (only where Rating IS NOT NULL)
+            query = (
+                db.query(
+                    Product.Id,
+                    Product.Name,
+                    Product.ImageUrl,
+                    Product.Price,
+                    func.count(UserInteraction.Id).label('rating_count'),
+                    func.avg(UserInteraction.Rating).label('avg_rating'),
+                    ProductCategory.Name.label('category_name')
+                )
+                .join(UserInteraction, Product.Id == UserInteraction.ProductID)
+                .outerjoin(ProductCategory, Product.CategoryId == ProductCategory.Id)
+                .filter(UserInteraction.Rating.isnot(None))
+            )
 
-        if popularity_counts is None:
-            raise ValueError(f"Popularity counts not loaded for dataset '{dataset}'")
+            # Apply category filter if provided
+            if category_id is not None:
+                query = query.filter(Product.CategoryId == category_id)
 
-        # Get top N items
-        # Assuming popularity_counts is a pandas Series or dict
-        if hasattr(popularity_counts, 'head'):
-            # pandas Series
-            top_items = popularity_counts.head(top_n)
-            results = [
+            # Group by product and order by rating count
+            query = (
+                query.group_by(Product.Id, Product.Name, Product.ImageUrl, Product.Price, ProductCategory.Name)
+                .order_by(func.count(UserInteraction.Id).desc())
+                .limit(top_n)
+            )
+
+            results = query.all()
+
+            # Format response
+            recommendations = [
                 {
-                    "product_id": str(product_id),
-                    "rating_count": int(count),
+                    "product_id": row.Id,
+                    "product_name": row.Name,
+                    "image_url": row.ImageUrl,
+                    "price": float(row.Price) if row.Price else None,
+                    "rating_count": row.rating_count,
+                    "average_rating": float(row.avg_rating) if row.avg_rating else None,
+                    "category_name": row.category_name,
                     "rank": idx + 1
                 }
-                for idx, (product_id, count) in enumerate(top_items.items())
-            ]
-        else:
-            # dict or other mapping
-            sorted_items = sorted(
-                popularity_counts.items(),
-                key=lambda x: x[1],
-                reverse=True
-            )[:top_n]
-            results = [
-                {
-                    "product_id": str(product_id),
-                    "rating_count": int(count),
-                    "rank": idx + 1
-                }
-                for idx, (product_id, count) in enumerate(sorted_items)
+                for idx, row in enumerate(results)
             ]
 
-        return results
+            return recommendations
+
+        finally:
+            if should_close_db:
+                db.close()
 
     def get_collaborative_recommendations(
         self,
-        product_id: str,
-        dataset: str = "english",
+        product_id: int,
         top_n: int = 10,
-        min_correlation: float = 0.0
-    ) -> List[Dict[str, Any]]:
+        min_correlation: float = 0.0,
+        category_id: Optional[int] = None,
+        db: Optional[Session] = None
+    ) -> Dict[str, Any]:
         """
         Get collaborative filtering recommendations using SVD and correlation matrix.
+        Hybrid approach: correlation matrix from file, product metadata from database.
 
         Args:
-            product_id: Product ID to get recommendations for
-            dataset: Dataset to use ("english" or "arabic")
+            product_id: Product.Id (integer) to get recommendations for
             top_n: Number of recommendations to return
             min_correlation: Minimum correlation threshold (0.0 to 1.0)
+            category_id: Optional category filter
+            db: Database session
 
         Returns:
-            List of recommended items with product_id and correlation_score
+            Dictionary with input product info and list of recommended items
 
         Raises:
             ValueError: If required models are not loaded
-            KeyError: If product_id is not found in the dataset
+            KeyError: If product_id is not found
         """
-        # Load dataset-specific models
-        correlation_key = f"correlation_matrix_{dataset}"
-        product_names_key = f"product_names_{dataset}"
+        should_close_db = False
+        if db is None:
+            db = SessionLocal()
+            should_close_db = True
 
-        correlation_matrix = self.manager.get_model(correlation_key)
-        product_names = self.manager.get_model(product_names_key)
-
-        # Fall back to default if dataset-specific not available
-        if correlation_matrix is None:
-            correlation_matrix = self.manager.get_model("correlation_matrix")
-        if product_names is None:
-            product_names = self.manager.get_model("product_names")
-
-        if correlation_matrix is None or product_names is None:
-            raise ValueError(f"Collaborative filtering models not loaded for dataset '{dataset}'")
-
-        # Find product index
         try:
-            if isinstance(product_names, list):
-                product_idx = product_names.index(product_id)
-            else:
-                product_idx = list(product_names).index(product_id)
-        except (ValueError, AttributeError):
-            raise KeyError(f"Product '{product_id}' not found in dataset")
+            # Load correlation matrix and product ID mapping from files
+            correlation_matrix = self.manager.get_model("correlation_matrix")
+            product_names = self.manager.get_model("product_names")  # Maps Product.Id to index
 
-        # Get correlations for this product
-        correlations = correlation_matrix[product_idx]
+            if correlation_matrix is None or product_names is None:
+                raise ValueError("Collaborative filtering models not loaded")
 
-        # Use adaptive top-N approach (instead of fixed threshold)
-        # Sort by correlation in descending order
-        sorted_indices = np.argsort(correlations)[::-1]
+            # Get input product from database
+            input_product = db.query(Product).filter(Product.Id == product_id).first()
+            if not input_product:
+                raise KeyError(f"Product with ID {product_id} not found")
 
-        recommendations = []
-        for idx in sorted_indices:
-            # Skip the product itself
-            if idx == product_idx:
-                continue
+            # Find product index in correlation matrix (by integer ID)
+            try:
+                if isinstance(product_names, list):
+                    product_idx = product_names.index(product_id)
+                else:
+                    product_idx = list(product_names).index(product_id)
+            except ValueError:
+                raise KeyError(f"Product ID {product_id} not found in trained model. Model may need retraining.")
 
-            correlation_score = float(correlations[idx])
+            # Get correlations for this product
+            correlations = correlation_matrix[product_idx]
 
-            # Apply minimum correlation filter
-            if correlation_score < min_correlation:
-                continue
+            # Sort by correlation in descending order
+            sorted_indices = np.argsort(correlations)[::-1]
 
-            recommendations.append({
-                "product_id": str(product_names[idx]),
-                "correlation_score": round(correlation_score, 4),
-                "rank": len(recommendations) + 1
-            })
+            # Get product IDs from sorted indices
+            recommended_ids = []
+            for idx in sorted_indices:
+                if idx == product_idx:  # Skip self
+                    continue
+                correlation_score = float(correlations[idx])
+                if correlation_score < min_correlation:
+                    continue
+                recommended_ids.append((product_names[idx], correlation_score))
+                if len(recommended_ids) >= top_n * 3:  # Fetch extra for filtering
+                    break
 
-            if len(recommendations) >= top_n:
-                break
+            # Fetch product details from database
+            ids = [pid for pid, _ in recommended_ids]
+            query = (
+                db.query(Product, ProductCategory.Name.label('category_name'))
+                .outerjoin(ProductCategory, Product.CategoryId == ProductCategory.Id)
+                .filter(Product.Id.in_(ids))
+            )
 
-        return recommendations
+            # Apply category filter if provided
+            if category_id is not None:
+                query = query.filter(Product.CategoryId == category_id)
+
+            products = query.all()
+
+            # Build product map: id -> (product, category_name)
+            product_map = {p.Product.Id: (p.Product, p.category_name) for p in products}
+
+            # Build final recommendations
+            recommendations = []
+            for pid, correlation_score in recommended_ids:
+                if pid in product_map:
+                    product, category_name = product_map[pid]
+                    recommendations.append({
+                        "product_id": product.Id,
+                        "product_name": product.Name,
+                        "image_url": product.ImageUrl,
+                        "price": float(product.Price) if product.Price else None,
+                        "correlation_score": round(correlation_score, 4),
+                        "category_name": category_name,
+                        "rank": len(recommendations) + 1
+                    })
+                if len(recommendations) >= top_n:
+                    break
+
+            return {
+                "input_product_id": input_product.Id,
+                "input_product_name": input_product.Name,
+                "recommendations": recommendations
+            }
+
+        finally:
+            if should_close_db:
+                db.close()
 
     def get_content_based_recommendations(
         self,
         search_query: str,
-        dataset: str = "english",
-        top_n: int = 10
+        top_n: int = 10,
+        category_id: Optional[int] = None,
+        db: Optional[Session] = None
     ) -> Dict[str, Any]:
         """
         Get content-based recommendations using TF-IDF + KMeans clustering.
+        Hybrid approach: TF-IDF/KMeans from files, product metadata from database.
 
         Args:
             search_query: Search query text
-            dataset: Dataset to use ("english" or "arabic")
             top_n: Number of recommendations to return
+            category_id: Optional category filter
+            db: Database session
 
         Returns:
             Dictionary with predicted_cluster, cluster_keywords, and recommendations
@@ -172,76 +234,83 @@ class RecommendationEngine:
         Raises:
             ValueError: If required models are not loaded
         """
-        # Load dataset-specific models
-        tfidf_key = f"tfidf_vectorizer_{dataset}"
-        kmeans_key = f"kmeans_model_{dataset}"
-        products_key = f"products_by_cluster_{dataset}"
+        should_close_db = False
+        if db is None:
+            db = SessionLocal()
+            should_close_db = True
 
-        tfidf_vectorizer = self.manager.get_model(tfidf_key)
-        kmeans_model = self.manager.get_model(kmeans_key)
-        products_by_cluster = self.manager.get_model(products_key)
-
-        # Fall back to default if dataset-specific not available
-        if tfidf_vectorizer is None:
+        try:
+            # Load TF-IDF and KMeans models from files
             tfidf_vectorizer = self.manager.get_model("tfidf_vectorizer")
-        if kmeans_model is None:
             kmeans_model = self.manager.get_model("kmeans_model")
-        if products_by_cluster is None:
-            products_by_cluster = self.manager.get_model("products_by_cluster")
 
-        if tfidf_vectorizer is None or kmeans_model is None:
-            raise ValueError(f"Content-based filtering models not loaded for dataset '{dataset}'")
+            if tfidf_vectorizer is None or kmeans_model is None:
+                raise ValueError("Content-based filtering models not loaded")
 
-        # Vectorize the search query
-        query_vector = tfidf_vectorizer.transform([search_query])
+            # Vectorize the search query
+            query_vector = tfidf_vectorizer.transform([search_query])
 
-        # Predict cluster
-        predicted_cluster = int(kmeans_model.predict(query_vector)[0])
+            # Predict cluster
+            predicted_cluster = int(kmeans_model.predict(query_vector)[0])
 
-        # Get cluster keywords (top terms)
-        cluster_keywords = self._get_cluster_keywords(
-            kmeans_model,
-            tfidf_vectorizer,
-            predicted_cluster,
-            top_k=7
-        )
+            # Get cluster keywords (top terms)
+            cluster_keywords = self._get_cluster_keywords(
+                kmeans_model,
+                tfidf_vectorizer,
+                predicted_cluster,
+                top_k=7
+            )
 
-        # Get products from this cluster
-        if products_by_cluster is not None:
-            cluster_products = products_by_cluster.get(predicted_cluster, [])
-        else:
-            # If products_by_cluster not available, return empty list
-            cluster_products = []
+            # Fetch products from this cluster (via ProductEmbedding table)
+            query = (
+                db.query(Product, ProductCategory.Name.label('category_name'))
+                .join(ProductEmbedding, Product.Id == ProductEmbedding.product_id)
+                .outerjoin(ProductCategory, Product.CategoryId == ProductCategory.Id)
+                .filter(ProductEmbedding.cluster_id == predicted_cluster)
+            )
 
-        # Calculate distances to cluster center for ranking
-        cluster_center = kmeans_model.cluster_centers_[predicted_cluster]
-        query_distance = float(
-            np.linalg.norm(query_vector.toarray() - cluster_center)
-        )
+            # Apply category filter if provided
+            if category_id is not None:
+                query = query.filter(Product.CategoryId == category_id)
 
-        # Format recommendations
-        recommendations = []
-        for idx, product in enumerate(cluster_products[:top_n]):
-            if isinstance(product, dict):
-                product_id = product.get("product_id", str(product))
-                description = product.get("description", "")
-            else:
-                product_id = str(product)
-                description = ""
+            # Limit results
+            products = query.limit(top_n).all()
 
-            recommendations.append({
-                "product_id": product_id,
-                "product_description": description[:200] if description else None,
-                "rank": idx + 1
-            })
+            # Format recommendations
+            recommendations = []
+            for idx, row in enumerate(products):
+                product = row.Product
+                category_name = row.category_name
+                recommendations.append({
+                    "product_id": product.Id,
+                    "product_name": product.Name,
+                    "product_description": product.Description[:200] if product.Description else None,
+                    "image_url": product.ImageUrl,
+                    "category_name": category_name,
+                    "rank": idx + 1
+                })
 
-        return {
-            "search_query": search_query,
-            "predicted_cluster": predicted_cluster,
-            "cluster_keywords": cluster_keywords,
-            "recommendations": recommendations,
-            "total_results": len(cluster_products)
-        }
+            # Count total products in cluster
+            total_in_cluster = (
+                db.query(func.count(ProductEmbedding.id))
+                .join(Product, Product.Id == ProductEmbedding.product_id)
+                .filter(ProductEmbedding.cluster_id == predicted_cluster)
+            )
+            if category_id is not None:
+                total_in_cluster = total_in_cluster.filter(Product.CategoryId == category_id)
+            total_in_cluster = total_in_cluster.scalar()
+
+            return {
+                "search_query": search_query,
+                "predicted_cluster": predicted_cluster,
+                "cluster_keywords": cluster_keywords,
+                "recommendations": recommendations,
+                "total_results": total_in_cluster
+            }
+
+        finally:
+            if should_close_db:
+                db.close()
 
     def _get_cluster_keywords(
         self,

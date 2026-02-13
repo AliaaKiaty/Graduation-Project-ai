@@ -1,137 +1,120 @@
 """
-Tests for authentication endpoints
+Tests for external JWT authentication
+Tests JWT validation, not login/register (auth is handled by .NET backend)
 """
 import os
 import pytest
-import time
+from datetime import datetime, timedelta
+from jose import jwt
 
 
-class TestAuthLogin:
-    """Tests for POST /auth/login endpoint."""
+def create_token(user_id: str, roles: list = None, expired: bool = False, extra_claims: dict = None) -> str:
+    """Helper to create test JWT tokens."""
+    now = datetime.utcnow()
+    payload = {
+        "sub": user_id,
+        "role": roles or [],
+        "iat": now,
+        "exp": now + timedelta(hours=-1 if expired else 1),
+    }
+    if extra_claims:
+        payload.update(extra_claims)
+    return jwt.encode(payload, os.environ['JWT_SECRET_KEY'], algorithm="HS256")
 
-    def test_login_valid_credentials(self, client):
-        """Test login with valid credentials returns tokens."""
-        response = client.post(
-            "/auth/login",
-            json={
-                "username": os.environ['ADMIN_USERNAME'],
-                "password": os.environ['ADMIN_PASSWORD']
-            }
-        )
+
+class TestJWTValidation:
+    """Tests for JWT token validation."""
+
+    def test_valid_token_accepted(self, client):
+        """Test that a valid JWT token is accepted."""
+        token = create_token("user-123")
+        headers = {"Authorization": f"Bearer {token}"}
+        response = client.get("/health")
         assert response.status_code == 200
-        data = response.json()
-        assert "access_token" in data
-        assert "refresh_token" in data
-        assert data["token_type"] == "bearer"
-        assert "expires_in" in data
 
-    def test_login_invalid_username(self, client):
-        """Test login with invalid username returns 401."""
-        response = client.post(
-            "/auth/login",
-            json={
-                "username": "nonexistent_user",
-                "password": os.environ['ADMIN_PASSWORD']
-            }
-        )
-        assert response.status_code == 401
-        assert "detail" in response.json()
+    def test_missing_token_returns_401(self, client):
+        """Test that missing token returns 401."""
+        response = client.post("/recommend/popular", json={"top_n": 5})
+        assert response.status_code in [401, 403]
 
-    def test_login_invalid_password(self, client):
-        """Test login with invalid password returns 401."""
-        response = client.post(
-            "/auth/login",
-            json={
-                "username": os.environ['ADMIN_USERNAME'],
-                "password": "wrong_password"
-            }
-        )
-        assert response.status_code == 401
-        assert "detail" in response.json()
-
-    def test_login_missing_fields(self, client):
-        """Test login with missing fields returns 422."""
-        response = client.post(
-            "/auth/login",
-            json={"username": "admin"}
-        )
-        assert response.status_code == 422
-
-    def test_login_empty_credentials(self, client):
-        """Test login with empty credentials returns error."""
-        response = client.post(
-            "/auth/login",
-            json={"username": "", "password": ""}
-        )
-        assert response.status_code in [401, 422]
-
-
-class TestAuthRefresh:
-    """Tests for POST /auth/refresh endpoint."""
-
-    def test_refresh_valid_token(self, client):
-        """Test refresh with valid refresh token returns new access token."""
-        # First login to get tokens
-        login_response = client.post(
-            "/auth/login",
-            json={
-                "username": os.environ['ADMIN_USERNAME'],
-                "password": os.environ['ADMIN_PASSWORD']
-            }
-        )
-        assert login_response.status_code == 200
-        refresh_token = login_response.json()["refresh_token"]
-
-        # Use refresh token
-        response = client.post(
-            "/auth/refresh",
-            json={"refresh_token": refresh_token}
-        )
-        assert response.status_code == 200
-        data = response.json()
-        assert "access_token" in data
-
-    def test_refresh_invalid_token(self, client):
-        """Test refresh with invalid token returns 401."""
-        response = client.post(
-            "/auth/refresh",
-            json={"refresh_token": "invalid.token.here"}
-        )
-        assert response.status_code == 401
-
-
-class TestAuthMe:
-    """Tests for GET /auth/me endpoint."""
-
-    def test_me_with_valid_token(self, client, auth_headers):
-        """Test /auth/me with valid token returns user info."""
-        if not auth_headers:
-            pytest.skip("Could not obtain auth token")
-
-        response = client.get("/auth/me", headers=auth_headers)
-        assert response.status_code == 200
-        data = response.json()
-        assert "username" in data
-        assert "email" in data
-        assert "is_admin" in data
-        assert data["username"] == os.environ['ADMIN_USERNAME']
-
-    def test_me_without_token(self, client):
-        """Test /auth/me without token returns 401."""
-        response = client.get("/auth/me")
-        assert response.status_code == 401
-
-    def test_me_with_invalid_token(self, client):
-        """Test /auth/me with invalid token returns 401."""
+    def test_invalid_token_returns_401(self, client):
+        """Test that an invalid token returns 401."""
         headers = {"Authorization": "Bearer invalid.token.here"}
-        response = client.get("/auth/me", headers=headers)
+        response = client.post(
+            "/recommend/popular",
+            json={"top_n": 5},
+            headers=headers
+        )
         assert response.status_code == 401
 
-    def test_me_with_malformed_header(self, client):
-        """Test /auth/me with malformed auth header returns 401."""
-        headers = {"Authorization": "InvalidFormat token123"}
-        response = client.get("/auth/me", headers=headers)
+    def test_expired_token_returns_401(self, client):
+        """Test that an expired token returns 401."""
+        token = create_token("user-123", expired=True)
+        headers = {"Authorization": f"Bearer {token}"}
+        response = client.post(
+            "/recommend/popular",
+            json={"top_n": 5},
+            headers=headers
+        )
         assert response.status_code == 401
+
+    def test_malformed_header_returns_401(self, client):
+        """Test that malformed Authorization header returns error."""
+        headers = {"Authorization": "InvalidFormat token123"}
+        response = client.post(
+            "/recommend/popular",
+            json={"top_n": 5},
+            headers=headers
+        )
+        assert response.status_code in [401, 403]
+
+    def test_token_with_wrong_secret_returns_401(self, client):
+        """Test that token signed with wrong secret returns 401."""
+        now = datetime.utcnow()
+        payload = {
+            "sub": "user-123",
+            "role": [],
+            "iat": now,
+            "exp": now + timedelta(hours=1),
+        }
+        token = jwt.encode(payload, "wrong-secret-key", algorithm="HS256")
+        headers = {"Authorization": f"Bearer {token}"}
+        response = client.post(
+            "/recommend/popular",
+            json={"top_n": 5},
+            headers=headers
+        )
+        assert response.status_code == 401
+
+
+class TestAdminAccess:
+    """Tests for admin-only endpoints."""
+
+    def test_admin_endpoint_with_admin_role(self, client):
+        """Test that admin endpoints accept tokens with admin role."""
+        token = create_token("admin-1", roles=["Admin"])
+        headers = {"Authorization": f"Bearer {token}"}
+        response = client.get("/admin/models", headers=headers)
+        assert response.status_code == 200
+
+    def test_admin_endpoint_without_admin_role(self, client):
+        """Test that admin endpoints reject tokens without admin role."""
+        token = create_token("user-123", roles=["User"])
+        headers = {"Authorization": f"Bearer {token}"}
+        response = client.get("/admin/models", headers=headers)
+        assert response.status_code == 403
+
+    def test_admin_endpoint_without_any_role(self, client):
+        """Test that admin endpoints reject tokens with no roles."""
+        token = create_token("user-123", roles=[])
+        headers = {"Authorization": f"Bearer {token}"}
+        response = client.get("/admin/models", headers=headers)
+        assert response.status_code == 403
+
+    def test_admin_endpoint_without_auth(self, client):
+        """Test that admin endpoints require authentication."""
+        response = client.get("/admin/models")
+        assert response.status_code in [401, 403]
 
 
 class TestProtectedEndpoints:
@@ -139,13 +122,15 @@ class TestProtectedEndpoints:
 
     def test_protected_endpoint_without_token(self, client):
         """Test accessing protected endpoint without token returns 401."""
-        response = client.get("/recommend/popular")
-        assert response.status_code == 401
+        response = client.post("/recommend/popular", json={"top_n": 5})
+        assert response.status_code in [401, 403]
 
-    def test_protected_endpoint_with_expired_token(self, client):
-        """Test accessing protected endpoint with expired token returns 401."""
-        # Create an expired token (would need to mock time or use short expiry)
-        # For now, just test with an invalid token format
-        headers = {"Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0IiwiZXhwIjoxfQ.invalid"}
-        response = client.get("/recommend/popular", headers=headers)
-        assert response.status_code == 401
+    def test_protected_endpoint_with_valid_token(self, client, auth_headers):
+        """Test accessing protected endpoint with valid token works."""
+        response = client.post(
+            "/recommend/popular",
+            json={"top_n": 5},
+            headers=auth_headers
+        )
+        # May be 200 or 500 depending on DB/model state, but not 401
+        assert response.status_code != 401

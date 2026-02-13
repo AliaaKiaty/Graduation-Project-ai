@@ -17,39 +17,10 @@ from .limiter import limiter
 async def lifespan(app: FastAPI):
     """
     Lifespan context manager for startup and shutdown events.
-    Replaces deprecated @app.on_event decorators.
     """
     # Startup
     init_db()
-    print("Database initialized")
-
-    # Initialize admin user
-    try:
-        from .database import SessionLocal
-        from .auth.models import User
-        from .auth.security import get_password_hash
-
-        db = SessionLocal()
-        try:
-            # Check if admin user exists, create if not
-            existing_admin = db.query(User).filter(User.username == config.ADMIN_USERNAME).first()
-            if not existing_admin:
-                admin_user = User(
-                    username=config.ADMIN_USERNAME,
-                    email=config.ADMIN_EMAIL,
-                    hashed_password=get_password_hash(config.ADMIN_PASSWORD),
-                    is_admin=True,
-                    is_active=True
-                )
-                db.add(admin_user)
-                db.commit()
-                print(f"Created admin user: {config.ADMIN_USERNAME}")
-            else:
-                print(f"Admin user already exists: {config.ADMIN_USERNAME}")
-        finally:
-            db.close()
-    except Exception as e:
-        print(f"Warning: Failed to initialize admin user: {e}")
+    print("Database initialized (ML tables only)")
 
     # Load models (eager loading for recommendation and image models)
     try:
@@ -165,16 +136,16 @@ async def root():
     }
 
 
-# Include routers
-from .auth.router import router as auth_router
+# Include routers (no auth router — auth is handled by .NET backend)
 from .api.recommendation import router as recommendation_router
 from .api.image import router as image_router
 from .api.chat import router as chat_router
+from .api.admin import router as admin_router
 
-app.include_router(auth_router, prefix="/auth", tags=["Authentication"])
 app.include_router(recommendation_router, prefix="/recommend", tags=["Recommendation"])
 app.include_router(image_router, prefix="/image", tags=["Image"])
 app.include_router(chat_router, prefix="/chat", tags=["Chat"])
+app.include_router(admin_router, prefix="/admin", tags=["Admin"])
 
 
 if __name__ == "__main__":

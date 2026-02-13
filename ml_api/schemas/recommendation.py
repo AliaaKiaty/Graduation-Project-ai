@@ -1,60 +1,69 @@
 """
 Pydantic schemas for recommendation API
+Updated for real .NET backend database schema
 """
 from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional
-from enum import Enum
+from decimal import Decimal
 
 
-class DatasetType(str, Enum):
-    """Dataset type enum"""
-    english = "english"
-    arabic = "arabic"
+# ============================================================================
+# POPULAR RECOMMENDATIONS
+# ============================================================================
+
+class PopularRequest(BaseModel):
+    """Request schema for popular items"""
+    category_id: Optional[int] = Field(None, description="Filter by category ID")
+    top_n: int = Field(default=10, ge=1, le=100, description="Number of items to return")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "category_id": None,
+                "top_n": 10
+            }
+        }
+    )
 
 
 class PopularItem(BaseModel):
     """Schema for a popular item"""
-    product_id: str = Field(..., description="Product ID")
+    product_id: int = Field(..., description="Product ID")
+    product_name: str = Field(..., description="Product name")
+    image_url: Optional[str] = Field(None, description="Product image URL")
+    price: Optional[float] = Field(None, description="Product price")
     rating_count: int = Field(..., description="Number of ratings")
+    average_rating: Optional[float] = Field(None, description="Average rating score")
+    category_name: Optional[str] = Field(None, description="Category name")
     rank: int = Field(..., description="Popularity rank")
 
 
 class PopularResponse(BaseModel):
     """Response schema for popular items endpoint"""
     recommendations: List[PopularItem] = Field(..., description="List of popular items")
-    dataset: str = Field(..., description="Dataset used")
     method: str = Field(default="popularity", description="Recommendation method")
     total_results: int = Field(..., description="Total number of results")
+    category_filter: Optional[int] = Field(None, description="Category ID filter applied")
 
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "recommendations": [
-                    {"product_id": "B001MA0QY2", "rating_count": 7533, "rank": 1},
-                    {"product_id": "B0009V1YR8", "rating_count": 2869, "rank": 2}
-                ],
-                "dataset": "english",
-                "method": "popularity",
-                "total_results": 2
-            }
-        }
-    )
 
+# ============================================================================
+# COLLABORATIVE FILTERING
+# ============================================================================
 
 class CollaborativeRequest(BaseModel):
     """Request schema for collaborative filtering"""
-    product_id: str = Field(..., min_length=1, description="Product ID to get recommendations for")
-    dataset: DatasetType = Field(default=DatasetType.english, description="Dataset to use")
+    product_id: int = Field(..., description="Product ID to get recommendations for")
     top_n: int = Field(default=10, ge=1, le=100, description="Number of recommendations")
     min_correlation: float = Field(default=0.0, ge=0.0, le=1.0, description="Minimum correlation threshold")
+    category_id: Optional[int] = Field(None, description="Filter by category ID")
 
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
-                "product_id": "6117036094",
-                "dataset": "english",
+                "product_id": 1,
                 "top_n": 10,
-                "min_correlation": 0.5
+                "min_correlation": 0.5,
+                "category_id": None
             }
         }
     )
@@ -62,47 +71,40 @@ class CollaborativeRequest(BaseModel):
 
 class CollaborativeItem(BaseModel):
     """Schema for a collaborative filtering recommendation"""
-    product_id: str = Field(..., description="Product ID")
+    product_id: int = Field(..., description="Product ID")
+    product_name: str = Field(..., description="Product name")
+    image_url: Optional[str] = Field(None, description="Product image URL")
+    price: Optional[float] = Field(None, description="Product price")
     correlation_score: float = Field(..., description="Correlation score with input product")
+    category_name: Optional[str] = Field(None, description="Category name")
     rank: int = Field(..., description="Recommendation rank")
 
 
 class CollaborativeResponse(BaseModel):
     """Response schema for collaborative filtering"""
-    input_product: str = Field(..., description="Input product ID")
+    input_product_id: int = Field(..., description="Input product ID")
+    input_product_name: str = Field(..., description="Input product name")
     recommendations: List[CollaborativeItem] = Field(..., description="Recommended products")
-    dataset: str = Field(..., description="Dataset used")
     method: str = Field(default="svd_collaborative_filtering", description="Recommendation method")
     total_results: int = Field(..., description="Total number of results")
 
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "input_product": "6117036094",
-                "recommendations": [
-                    {"product_id": "0733001998", "correlation_score": 0.92, "rank": 1},
-                    {"product_id": "1304511073", "correlation_score": 0.89, "rank": 2}
-                ],
-                "dataset": "english",
-                "method": "svd_collaborative_filtering",
-                "total_results": 2
-            }
-        }
-    )
 
+# ============================================================================
+# CONTENT-BASED FILTERING
+# ============================================================================
 
 class ContentBasedRequest(BaseModel):
     """Request schema for content-based recommendations"""
     search_query: str = Field(..., min_length=1, max_length=500, description="Search query text")
-    dataset: DatasetType = Field(default=DatasetType.english, description="Dataset to use")
     top_n: int = Field(default=10, ge=1, le=100, description="Number of recommendations")
+    category_id: Optional[int] = Field(None, description="Filter by category ID")
 
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
                 "search_query": "cutting tool",
-                "dataset": "english",
-                "top_n": 10
+                "top_n": 10,
+                "category_id": None
             }
         }
     )
@@ -110,8 +112,11 @@ class ContentBasedRequest(BaseModel):
 
 class ContentBasedItem(BaseModel):
     """Schema for a content-based recommendation"""
-    product_id: str = Field(..., description="Product ID")
+    product_id: int = Field(..., description="Product ID")
+    product_name: str = Field(..., description="Product name")
     product_description: Optional[str] = Field(None, description="Product description (truncated)")
+    image_url: Optional[str] = Field(None, description="Product image URL")
+    category_name: Optional[str] = Field(None, description="Category name")
     rank: int = Field(..., description="Recommendation rank")
 
 
@@ -121,26 +126,37 @@ class ContentBasedResponse(BaseModel):
     predicted_cluster: int = Field(..., description="Predicted cluster ID")
     cluster_keywords: List[str] = Field(..., description="Top keywords for the cluster")
     recommendations: List[ContentBasedItem] = Field(..., description="Recommended products")
-    dataset: str = Field(..., description="Dataset used")
     method: str = Field(default="tfidf_kmeans", description="Recommendation method")
     total_results: int = Field(..., description="Total items in cluster")
 
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "search_query": "cutting tool",
-                "predicted_cluster": 6,
-                "cluster_keywords": ["tool", "cutting", "metal", "paint", "easy", "handle", "blade"],
-                "recommendations": [
-                    {
-                        "product_id": "100123",
-                        "product_description": "Professional cutting tool with ergonomic handle...",
-                        "rank": 1
-                    }
-                ],
-                "dataset": "english",
-                "method": "tfidf_kmeans",
-                "total_results": 15
-            }
-        }
-    )
+
+# ============================================================================
+# PRODUCT RESPONSE (read-only)
+# ============================================================================
+
+class ProductResponse(BaseModel):
+    """Schema for product response (read-only from .NET backend)"""
+    id: int
+    name: str
+    description: Optional[str] = None
+    category_id: Optional[int] = None
+    category_name: Optional[str] = None
+    price: Optional[Decimal] = None
+    image_url: Optional[str] = None
+    quantity: Optional[int] = None
+    seller_id: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ============================================================================
+# CATEGORY SCHEMAS
+# ============================================================================
+
+class CategoryResponse(BaseModel):
+    """Schema for category response (read-only from .NET backend)"""
+    id: int
+    name: str
+    image: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)

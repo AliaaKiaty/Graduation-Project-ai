@@ -1,19 +1,28 @@
 """
 Recommendation API router
-Provides endpoints for popularity, collaborative filtering, and content-based recommendations
+Provides endpoints for popularity, collaborative filtering, content-based recommendations
+Products and categories are read-only (managed by .NET backend)
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Query
-from typing import Annotated
+from sqlalchemy.orm import Session
+from typing import Annotated, List, Optional
 
-from ..auth import get_current_user, require_admin, User
+from ..auth import get_current_user, TokenUser
+from ..database import get_db
 from ..models.recommendation import RecommendationEngine
+from ..models.db_models import Product, ProductCategory
 from ..schemas.recommendation import (
+    PopularRequest,
     PopularResponse,
+    PopularItem,
     CollaborativeRequest,
     CollaborativeResponse,
+    CollaborativeItem,
     ContentBasedRequest,
     ContentBasedResponse,
-    DatasetType
+    ContentBasedItem,
+    ProductResponse,
+    CategoryResponse
 )
 from ..limiter import limiter
 from .. import config
@@ -32,38 +41,35 @@ def get_rec_engine() -> RecommendationEngine:
     return _rec_engine
 
 
-@router.get("/popular", response_model=PopularResponse)
+# ============================================================================
+# RECOMMENDATION ENDPOINTS
+# ============================================================================
+
+@router.post("/popular", response_model=PopularResponse)
 @limiter.limit(config.RATE_LIMIT_GENERAL)
 async def get_popular_items(
     request: Request,
-    current_user: Annotated[User, Depends(get_current_user)],
-    dataset: DatasetType = Query(default=DatasetType.english, description="Dataset to use"),
-    top_n: int = Query(default=10, ge=1, le=100, description="Number of items to return"),
+    req_data: PopularRequest,
+    current_user: Annotated[TokenUser, Depends(get_current_user)],
+    db: Session = Depends(get_db)
 ) -> PopularResponse:
     """
-    Get most popular items based on rating counts.
-
+    Get most popular items based on rating counts from database.
     Requires authentication.
-
-    Args:
-        dataset: Dataset to use ("english" or "arabic")
-        top_n: Number of top items to return (1-100)
-
-    Returns:
-        List of popular items with rating counts
     """
     try:
         rec_engine = get_rec_engine()
         recommendations = rec_engine.get_popular_items(
-            dataset=dataset.value,
-            top_n=top_n
+            top_n=req_data.top_n,
+            category_id=req_data.category_id,
+            db=db
         )
 
         return PopularResponse(
-            recommendations=recommendations,
-            dataset=dataset.value,
+            recommendations=[PopularItem(**rec) for rec in recommendations],
             method="popularity",
-            total_results=len(recommendations)
+            total_results=len(recommendations),
+            category_filter=req_data.category_id
         )
 
     except ValueError as e:
@@ -83,36 +89,29 @@ async def get_popular_items(
 async def get_collaborative_recommendations(
     request: Request,
     req_data: CollaborativeRequest,
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[TokenUser, Depends(get_current_user)],
+    db: Session = Depends(get_db)
 ) -> CollaborativeResponse:
     """
     Get collaborative filtering recommendations using SVD and correlation matrix.
-
     Requires authentication.
-
-    Finds similar products based on user rating patterns using matrix factorization.
-
-    Args:
-        req_data: Request with product_id, dataset, top_n, and min_correlation
-
-    Returns:
-        List of similar products with correlation scores
     """
     try:
         rec_engine = get_rec_engine()
-        recommendations = rec_engine.get_collaborative_recommendations(
+        result = rec_engine.get_collaborative_recommendations(
             product_id=req_data.product_id,
-            dataset=req_data.dataset.value,
             top_n=req_data.top_n,
-            min_correlation=req_data.min_correlation
+            min_correlation=req_data.min_correlation,
+            category_id=req_data.category_id,
+            db=db
         )
 
         return CollaborativeResponse(
-            input_product=req_data.product_id,
-            recommendations=recommendations,
-            dataset=req_data.dataset.value,
+            input_product_id=result["input_product_id"],
+            input_product_name=result["input_product_name"],
+            recommendations=[CollaborativeItem(**rec) for rec in result["recommendations"]],
             method="svd_collaborative_filtering",
-            total_results=len(recommendations)
+            total_results=len(result["recommendations"])
         )
 
     except KeyError as e:
@@ -137,35 +136,27 @@ async def get_collaborative_recommendations(
 async def get_content_based_recommendations(
     request: Request,
     req_data: ContentBasedRequest,
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[TokenUser, Depends(get_current_user)],
+    db: Session = Depends(get_db)
 ) -> ContentBasedResponse:
     """
     Get content-based recommendations using TF-IDF and KMeans clustering.
-
     Requires authentication.
-
-    Finds products similar to the search query by clustering product descriptions.
-
-    Args:
-        req_data: Request with search_query, dataset, and top_n
-
-    Returns:
-        Predicted cluster, keywords, and list of similar products
     """
     try:
         rec_engine = get_rec_engine()
         result = rec_engine.get_content_based_recommendations(
             search_query=req_data.search_query,
-            dataset=req_data.dataset.value,
-            top_n=req_data.top_n
+            top_n=req_data.top_n,
+            category_id=req_data.category_id,
+            db=db
         )
 
         return ContentBasedResponse(
             search_query=result["search_query"],
             predicted_cluster=result["predicted_cluster"],
             cluster_keywords=result["cluster_keywords"],
-            recommendations=result["recommendations"],
-            dataset=req_data.dataset.value,
+            recommendations=[ContentBasedItem(**rec) for rec in result["recommendations"]],
             method="tfidf_kmeans",
             total_results=result["total_results"]
         )
@@ -179,4 +170,152 @@ async def get_content_based_recommendations(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error generating recommendations: {str(e)}"
+        )
+
+
+# ============================================================================
+# READ-ONLY PRODUCT ENDPOINTS
+# ============================================================================
+
+@router.get("/products", response_model=List[ProductResponse])
+@limiter.limit(config.RATE_LIMIT_GENERAL)
+async def list_products(
+    request: Request,
+    current_user: Annotated[TokenUser, Depends(get_current_user)],
+    db: Session = Depends(get_db),
+    skip: int = Query(default=0, ge=0, description="Number of products to skip"),
+    limit: int = Query(default=20, ge=1, le=100, description="Maximum number of products to return"),
+    search: Optional[str] = Query(default=None, description="Search by product name or description"),
+    category_id: Optional[int] = Query(default=None, description="Filter by category ID"),
+) -> List[ProductResponse]:
+    """
+    List products with pagination, search, and filtering.
+    Read-only — products are managed by the .NET backend.
+    Requires authentication.
+    """
+    try:
+        query = db.query(Product, ProductCategory.Name.label('category_name')).outerjoin(
+            ProductCategory, Product.CategoryId == ProductCategory.Id
+        )
+
+        if search:
+            search_filter = f"%{search}%"
+            query = query.filter(
+                (Product.Name.ilike(search_filter)) |
+                (Product.Description.ilike(search_filter))
+            )
+
+        if category_id is not None:
+            query = query.filter(Product.CategoryId == category_id)
+
+        products = query.offset(skip).limit(limit).all()
+
+        result = []
+        for row in products:
+            product = row.Product
+            category_name = row.category_name
+            result.append(ProductResponse(
+                id=product.Id,
+                name=product.Name,
+                description=product.Description,
+                category_id=product.CategoryId,
+                category_name=category_name,
+                price=product.Price,
+                image_url=product.ImageUrl,
+                quantity=product.Quantity,
+                seller_id=product.SellerID,
+            ))
+
+        return result
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching products: {str(e)}"
+        )
+
+
+@router.get("/products/{product_id}", response_model=ProductResponse)
+@limiter.limit(config.RATE_LIMIT_GENERAL)
+async def get_product(
+    request: Request,
+    product_id: int,
+    current_user: Annotated[TokenUser, Depends(get_current_user)],
+    db: Session = Depends(get_db)
+) -> ProductResponse:
+    """
+    Get a single product by ID.
+    Read-only — products are managed by the .NET backend.
+    Requires authentication.
+    """
+    try:
+        result = (
+            db.query(Product, ProductCategory.Name.label('category_name'))
+            .outerjoin(ProductCategory, Product.CategoryId == ProductCategory.Id)
+            .filter(Product.Id == product_id)
+            .first()
+        )
+
+        if not result:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Product with ID {product_id} not found"
+            )
+
+        product = result.Product
+        category_name = result.category_name
+
+        return ProductResponse(
+            id=product.Id,
+            name=product.Name,
+            description=product.Description,
+            category_id=product.CategoryId,
+            category_name=category_name,
+            price=product.Price,
+            image_url=product.ImageUrl,
+            quantity=product.Quantity,
+            seller_id=product.SellerID,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching product: {str(e)}"
+        )
+
+
+# ============================================================================
+# READ-ONLY CATEGORY ENDPOINTS
+# ============================================================================
+
+@router.get("/categories", response_model=List[CategoryResponse])
+@limiter.limit(config.RATE_LIMIT_GENERAL)
+async def list_categories(
+    request: Request,
+    current_user: Annotated[TokenUser, Depends(get_current_user)],
+    db: Session = Depends(get_db),
+) -> List[CategoryResponse]:
+    """
+    List all product categories.
+    Read-only — categories are managed by the .NET backend.
+    Requires authentication.
+    """
+    try:
+        categories = db.query(ProductCategory).all()
+
+        return [
+            CategoryResponse(
+                id=cat.Id,
+                name=cat.Name,
+                image=cat.Image,
+            )
+            for cat in categories
+        ]
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching categories: {str(e)}"
         )

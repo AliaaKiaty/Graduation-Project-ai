@@ -1,23 +1,23 @@
 """
-User model for authentication
+Token user model for external JWT authentication
+No database model — user info comes from JWT claims
 """
-from sqlalchemy import Column, Integer, String, Boolean, DateTime
-from sqlalchemy.sql import func
-from ..database import Base
+from dataclasses import dataclass, field
+from typing import List
 
 
-class User(Base):
-    """User model for admin authentication"""
-    __tablename__ = "users"
+@dataclass
+class TokenUser:
+    """
+    Lightweight user representation extracted from JWT claims.
+    No database backing — all info comes from the token.
+    """
+    user_id: str
+    roles: List[str] = field(default_factory=list)
+    claims: dict = field(default_factory=dict)
 
-    id = Column(Integer, primary_key=True, index=True)
-    username = Column(String(50), unique=True, index=True, nullable=False)
-    email = Column(String(100), unique=True, index=True, nullable=False)
-    hashed_password = Column(String(255), nullable=False)
-    is_admin = Column(Boolean, default=True, nullable=False)
-    is_active = Column(Boolean, default=True, nullable=False)
-    created_at = Column(DateTime, server_default=func.now(), nullable=False)
-    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
-
-    def __repr__(self):
-        return f"<User(id={self.id}, username='{self.username}', email='{self.email}')>"
+    @property
+    def is_admin(self) -> bool:
+        """Check if user has admin role"""
+        from .. import config
+        return config.JWT_ADMIN_ROLE in self.roles

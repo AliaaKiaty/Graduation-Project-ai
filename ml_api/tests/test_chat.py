@@ -1,5 +1,6 @@
 """
 Tests for chat endpoints
+Uses JWT-based auth from conftest (external JWT validation)
 """
 import pytest
 
@@ -13,13 +14,10 @@ class TestChatMessageEndpoint:
             "/chat/message",
             json={"message": "ما هي عاصمة مصر؟"}
         )
-        assert response.status_code == 401
+        assert response.status_code in [401, 403]
 
     def test_message_valid_request(self, client, auth_headers):
         """Test chat message endpoint with valid request."""
-        if not auth_headers:
-            pytest.skip("Could not obtain auth token")
-
         response = client.post(
             "/chat/message",
             json={
@@ -42,9 +40,6 @@ class TestChatMessageEndpoint:
 
     def test_message_default_params(self, client, auth_headers):
         """Test chat message endpoint with default parameters."""
-        if not auth_headers:
-            pytest.skip("Could not obtain auth token")
-
         response = client.post(
             "/chat/message",
             json={"message": "مرحبا"},
@@ -54,9 +49,6 @@ class TestChatMessageEndpoint:
 
     def test_message_missing_message(self, client, auth_headers):
         """Test chat message endpoint with missing message."""
-        if not auth_headers:
-            pytest.skip("Could not obtain auth token")
-
         response = client.post(
             "/chat/message",
             json={"max_tokens": 100},
@@ -66,9 +58,6 @@ class TestChatMessageEndpoint:
 
     def test_message_empty_message(self, client, auth_headers):
         """Test chat message endpoint with empty message."""
-        if not auth_headers:
-            pytest.skip("Could not obtain auth token")
-
         response = client.post(
             "/chat/message",
             json={"message": ""},
@@ -78,9 +67,6 @@ class TestChatMessageEndpoint:
 
     def test_message_max_tokens_limit(self, client, auth_headers):
         """Test chat message endpoint with max_tokens at limit."""
-        if not auth_headers:
-            pytest.skip("Could not obtain auth token")
-
         response = client.post(
             "/chat/message",
             json={"message": "test", "max_tokens": 1024},
@@ -90,9 +76,6 @@ class TestChatMessageEndpoint:
 
     def test_message_max_tokens_exceeds_limit(self, client, auth_headers):
         """Test chat message endpoint with max_tokens exceeding limit."""
-        if not auth_headers:
-            pytest.skip("Could not obtain auth token")
-
         response = client.post(
             "/chat/message",
             json={"message": "test", "max_tokens": 2000},
@@ -102,9 +85,6 @@ class TestChatMessageEndpoint:
 
     def test_message_invalid_temperature(self, client, auth_headers):
         """Test chat message endpoint with invalid temperature."""
-        if not auth_headers:
-            pytest.skip("Could not obtain auth token")
-
         response = client.post(
             "/chat/message",
             json={"message": "test", "temperature": 3.0},
@@ -114,9 +94,6 @@ class TestChatMessageEndpoint:
 
     def test_message_temperature_range(self, client, auth_headers):
         """Test chat message endpoint with various temperatures."""
-        if not auth_headers:
-            pytest.skip("Could not obtain auth token")
-
         # Test low temperature
         response = client.post(
             "/chat/message",
@@ -135,9 +112,6 @@ class TestChatMessageEndpoint:
 
     def test_message_long_input(self, client, auth_headers):
         """Test chat message endpoint with long input."""
-        if not auth_headers:
-            pytest.skip("Could not obtain auth token")
-
         long_message = "ما هي " * 100  # Repeat to create long message
         response = client.post(
             "/chat/message",
@@ -154,13 +128,10 @@ class TestChatStatusEndpoint:
     def test_status_without_auth(self, client):
         """Test chat status endpoint requires authentication."""
         response = client.get("/chat/status")
-        assert response.status_code == 401
+        assert response.status_code in [401, 403]
 
     def test_status_valid_request(self, client, auth_headers):
         """Test chat status endpoint with valid request."""
-        if not auth_headers:
-            pytest.skip("Could not obtain auth token")
-
         response = client.get("/chat/status", headers=auth_headers)
         assert response.status_code == 200
 
@@ -176,13 +147,10 @@ class TestChatLoadEndpoint:
     def test_load_without_auth(self, client):
         """Test chat load endpoint requires authentication."""
         response = client.post("/chat/load")
-        assert response.status_code == 401
+        assert response.status_code in [401, 403]
 
     def test_load_valid_request(self, client, auth_headers):
         """Test chat load endpoint with valid request."""
-        if not auth_headers:
-            pytest.skip("Could not obtain auth token")
-
         response = client.post("/chat/load", headers=auth_headers)
         # May succeed or fail depending on GPU/model availability
         assert response.status_code in [200, 500, 503]
@@ -199,13 +167,10 @@ class TestChatUnloadEndpoint:
     def test_unload_without_auth(self, client):
         """Test chat unload endpoint requires authentication."""
         response = client.post("/chat/unload")
-        assert response.status_code == 401
+        assert response.status_code in [401, 403]
 
     def test_unload_valid_request(self, client, auth_headers):
         """Test chat unload endpoint with valid request."""
-        if not auth_headers:
-            pytest.skip("Could not obtain auth token")
-
         response = client.post("/chat/unload", headers=auth_headers)
         assert response.status_code == 200
 

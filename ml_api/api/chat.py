@@ -5,7 +5,7 @@ Provides endpoints for Arabic chatbot inference using Llama 3 with LoRA
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from typing import Annotated
 
-from ..auth import get_current_user, User
+from ..auth import get_current_user, TokenUser
 from ..models.chatbot import get_chatbot_engine, ChatbotEngine
 from ..schemas.chat import ChatRequest, ChatResponse, ChatModelStatus
 from ..limiter import limiter
@@ -24,7 +24,7 @@ def get_engine() -> ChatbotEngine:
 async def chat_message(
     request: Request,
     chat_request: ChatRequest,
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[TokenUser, Depends(get_current_user)],
     engine: ChatbotEngine = Depends(get_engine),
 ) -> ChatResponse:
     """
@@ -78,7 +78,7 @@ async def chat_message(
 @limiter.limit(config.RATE_LIMIT_GENERAL)
 async def chat_status(
     request: Request,
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[TokenUser, Depends(get_current_user)],
     engine: ChatbotEngine = Depends(get_engine),
 ) -> ChatModelStatus:
     """
@@ -102,7 +102,7 @@ async def chat_status(
 @limiter.limit(config.RATE_LIMIT_LOGIN)
 async def load_model(
     request: Request,
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[TokenUser, Depends(get_current_user)],
     engine: ChatbotEngine = Depends(get_engine),
 ):
     """
@@ -136,7 +136,7 @@ async def load_model(
 @limiter.limit(config.RATE_LIMIT_LOGIN)
 async def unload_model(
     request: Request,
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[TokenUser, Depends(get_current_user)],
     engine: ChatbotEngine = Depends(get_engine),
 ):
     """
