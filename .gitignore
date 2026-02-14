@@ -1,4 +1,74 @@
+# Virtual Environments
 .venv
+venv/
+env/
+ENV/
+
+# IDE
 .claude
 .idea
+.vscode/
+*.swp
+*.swo
+
+# Node
 /node_modules/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Environment Variables
+.env
+.env.local
+.env.*.local
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+ml_api/data/users.db
+
+# Logs
+*.log
+logs/
+ml_api/logs/
+
+# Docker
+docker-compose.override.yml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Backups
+*.dump
+backups/
+
+# Large data/model files (exceed GitHub 100MB limit)
+*.zip
+*.tar.gz
+*.h5
+*.keras
+*.pkl
+*.npy
+ml_api/saved_models/
+content/leedsbutterfly/train_organized/
+content/leedsbutterfly/test_organized/
+
+# Windows artifacts
+nul

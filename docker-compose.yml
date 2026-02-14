@@ -1,0 +1,149 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:14-alpine
+    container_name: ml-recommendation-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ml_recommendation}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    networks:
+      - ml-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-ml_recommendation}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ML API Application
+  ml-api:
+    build:
+      context: ./ml_api
+      dockerfile: Dockerfile
+    container_name: ml-recommendation-api
+    restart: unless-stopped
+    environment:
+      # Database Configuration
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ml_recommendation}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-5}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-10}
+      DB_POOL_TIMEOUT: ${DB_POOL_TIMEOUT:-30}
+      DB_POOL_RECYCLE: ${DB_POOL_RECYCLE:-3600}
+
+      # Authentication
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY is required}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD is required}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
+
+      # Application Settings
+      API_TITLE: ${API_TITLE:-ML Recommendation API}
+      API_VERSION: ${API_VERSION:-1.0.0}
+      MODELS_DIR: ${MODELS_DIR:-/app/saved_models}
+
+      # Rate Limiting
+      RATE_LIMIT_LOGIN: ${RATE_LIMIT_LOGIN:-10/minute}
+      RATE_LIMIT_GENERAL: ${RATE_LIMIT_GENERAL:-100/minute}
+
+      # CORS
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:8080}
+
+      # Optional: HuggingFace Token for Chatbot
+      HF_TOKEN: ${HF_TOKEN:-}
+
+      # Environment
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+    volumes:
+      # Mount saved models (persistent storage)
+      - ml_models:/app/saved_models
+      # Mount data directory
+      - ml_data:/app/data
+      # Mount logs
+      - ml_logs:/app/logs
+      # Mount CSV files for migration (read-only)
+      - ./ratings_Beauty.csv:/app/ratings_Beauty.csv:ro
+      - ./content:/app/content:ro
+    ports:
+      - "${API_PORT:-8000}:8000"
+    networks:
+      - ml-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Optional: pgAdmin for database management
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: ml-recommendation-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@admin.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: 'False'
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    ports:
+      - "${PGADMIN_PORT:-5050}:80"
+    networks:
+      - ml-network
+    depends_on:
+      - postgres
+    profiles:
+      - tools
+
+  # Optional: Redis for rate limiting (production)
+  redis:
+    image: redis:7-alpine
+    container_name: ml-recommendation-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redispassword}
+    volumes:
+      - redis_data:/data
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    networks:
+      - ml-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    profiles:
+      - production
+
+# Named volumes for persistent data
+volumes:
+  postgres_data:
+    driver: local
+  ml_models:
+    driver: local
+  ml_data:
+    driver: local
+  ml_logs:
+    driver: local
+  pgadmin_data:
+    driver: local
+  redis_data:
+    driver: local
+
+# Network for inter-container communication
+networks:
+  ml-network:
+    driver: bridge

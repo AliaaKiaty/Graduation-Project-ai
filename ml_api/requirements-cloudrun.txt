@@ -1,0 +1,32 @@
+# Cloud Run requirements — no PyTorch/LLM deps (no GPU available)
+# Versions must match those used to save the model files.
+
+# Core
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+gunicorn==21.2.0
+
+# Authentication (external JWT validation)
+python-jose[cryptography]==3.3.0
+python-multipart==0.0.6
+
+# Database
+sqlalchemy==2.0.25
+psycopg2-binary==2.9.9
+
+# Rate Limiting
+slowapi==0.1.9
+
+# ML — versions pinned to match saved model files
+numpy>=1.26.3
+pandas>=2.1.4
+scikit-learn==1.7.2
+pillow>=10.2.0
+joblib>=1.3.2
+tensorflow==2.20.0
+keras==3.12.0
+
+# Utilities
+python-dotenv==1.0.0
+aiofiles==23.2.1
+httpx==0.26.0

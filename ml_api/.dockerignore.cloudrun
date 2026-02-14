@@ -1,0 +1,59 @@
+# Cloud Run .dockerignore — INCLUDES model files (recommendation + image)
+# but excludes chatbot models and non-essential files
+
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# Testing
+tests/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment files (secrets passed via Cloud Run env vars)
+.env
+.env.*
+
+# Database files (use Cloud SQL or ephemeral SQLite)
+*.db
+*.sqlite
+*.sqlite3
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Notebooks
+*.ipynb
+.ipynb_checkpoints/
+
+# Docker files (not needed inside image)
+Dockerfile
+Dockerfile.*
+.dockerignore
+.dockerignore.*
+docker-compose*.yml
+
+# Documentation
+*.md
+
+# Chatbot models (no GPU on Cloud Run)
+saved_models/chatbot/
+
+# OS files
+Thumbs.db
+.DS_Store

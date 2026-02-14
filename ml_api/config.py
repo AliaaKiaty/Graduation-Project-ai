@@ -20,6 +20,9 @@ JWT_USER_ID_CLAIM = os.environ.get("JWT_USER_ID_CLAIM", "sub")  # Claim containi
 JWT_ROLE_CLAIM = os.environ.get("JWT_ROLE_CLAIM", "role")  # Claim containing user roles
 JWT_ADMIN_ROLE = os.environ.get("JWT_ADMIN_ROLE", "Admin")  # Role value for admin users
 
+# Dev mode: bypass JWT validation entirely (set to "true" to enable)
+BYPASS_AUTH = os.environ.get("BYPASS_AUTH", "false").lower() == "true"
+
 # =============================================================================
 # Database Settings
 # =============================================================================

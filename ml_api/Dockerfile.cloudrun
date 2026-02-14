@@ -1,0 +1,62 @@
+# Cloud Run Dockerfile — bakes models into the image
+# No GPU/chatbot support (returns 503 gracefully)
+FROM python:3.10-slim
+
+# Prevent Python from writing .pyc and enable unbuffered output
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq-dev \
+    gcc \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN useradd -m -u 1000 appuser && \
+    mkdir -p /app && \
+    chown -R appuser:appuser /app
+
+WORKDIR /app
+
+# Install Python dependencies (Cloud Run slim requirements)
+COPY requirements-cloudrun.txt /tmp/requirements-cloudrun.txt
+RUN pip install --upgrade pip && \
+    pip install -r /tmp/requirements-cloudrun.txt && \
+    rm /tmp/requirements-cloudrun.txt
+
+# Copy application code as a package (relative imports require package structure)
+COPY __init__.py main.py config.py database.py limiter.py ./ml_api/
+COPY auth/ ./ml_api/auth/
+COPY models/ ./ml_api/models/
+COPY api/ ./ml_api/api/
+COPY schemas/ ./ml_api/schemas/
+COPY scripts/ ./ml_api/scripts/
+
+# Copy saved models (recommendation + image only, no chatbot)
+COPY saved_models/recommendation/ ./ml_api/saved_models/recommendation/
+COPY saved_models/image/ ./ml_api/saved_models/image/
+
+# Create directories that may be needed at runtime
+RUN mkdir -p /app/ml_api/saved_models/chatbot /app/ml_api/logs /app/ml_api/data && \
+    chown -R appuser:appuser /app
+
+# Switch to non-root user
+USER appuser
+
+# Cloud Run sets PORT dynamically
+ENV PORT=8000
+
+EXPOSE ${PORT}
+
+# Health check (for local testing; Cloud Run uses startup probe)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
+    CMD curl -f http://localhost:${PORT}/health || exit 1
+
+# Use gunicorn with uvicorn workers for production
+# ml_api.main:app — runs as package so relative imports work
+# JSON form ensures proper signal forwarding (Cloud Run sends SIGTERM)
+CMD ["sh", "-c", "gunicorn ml_api.main:app --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT --workers 2 --timeout 60 --graceful-timeout 10 --keep-alive 5 --access-logfile - --error-logfile -"]

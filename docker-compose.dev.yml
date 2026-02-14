@@ -1,0 +1,45 @@
+# Development override for docker-compose.yml
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+version: '3.8'
+
+services:
+  ml-api:
+    # Mount source code for hot reload
+    volumes:
+      # Override: Mount local code directory
+      - ./ml_api:/app:rw
+      # Still mount models, data, logs as before
+      - ml_models:/app/saved_models
+      - ml_data:/app/data
+      - ml_logs:/app/logs
+      - ./ratings_Beauty.csv:/app/ratings_Beauty.csv:ro
+      - ./content:/app/content:ro
+
+    # Development command with auto-reload
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+    environment:
+      # Development environment
+      ENVIRONMENT: development
+      LOG_LEVEL: DEBUG
+
+    # Build with development target (if multi-stage)
+    build:
+      context: ./ml_api
+      dockerfile: Dockerfile
+      target: base
+
+  postgres:
+    # Expose PostgreSQL port to host for debugging
+    ports:
+      - "5432:5432"
+
+    # Enable query logging for development
+    command: >
+      postgres
+      -c log_statement=all
+      -c log_duration=on
+      -c log_min_duration_statement=100
+
+# Volumes are inherited from docker-compose.yml

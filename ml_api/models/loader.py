@@ -110,7 +110,9 @@ class ModelManager:
 
             # Load ResNet50 feature extractor
             if config.RESNET50_PATH.exists():
-                self._models["resnet50"] = tf.keras.models.load_model(config.RESNET50_PATH)
+                self._models["resnet50_feature_extractor"] = tf.keras.models.load_model(
+                    config.RESNET50_PATH
+                )
                 self._loading_status["image"]["feature_extractor"] = "loaded"
 
             # Load butterfly classifier
@@ -119,6 +121,9 @@ class ModelManager:
                     config.BUTTERFLY_CLASSIFIER_PATH
                 )
                 self._loading_status["image"]["classifier"] = "loaded"
+
+            # Store class names for classification results
+            self._models["class_names"] = config.BUTTERFLY_CLASSES
 
             # Load KNN index and feature list
             if config.FEATURE_LIST_PATH.exists() and config.FILENAMES_PATH.exists():
@@ -133,9 +138,9 @@ class ModelManager:
                 )
                 neighbors.fit(feature_list)
 
-                self._models["knn_neighbors"] = neighbors
+                self._models["knn_model"] = neighbors
                 self._models["feature_list"] = feature_list
-                self._models["image_filenames"] = filenames
+                self._models["filenames"] = filenames
                 self._loading_status["image"]["knn_index"] = "loaded"
 
             # Load PCA model if available
@@ -255,9 +260,9 @@ class ModelManager:
             "tfidf_vectorizer": ("recommendation", "content_based"),
             "kmeans_model": ("recommendation", "content_based"),
             "products_by_cluster": ("recommendation", "content_based"),
-            "resnet50": ("image", "feature_extractor"),
+            "resnet50_feature_extractor": ("image", "feature_extractor"),
             "butterfly_classifier": ("image", "classifier"),
-            "knn_neighbors": ("image", "knn_index"),
+            "knn_model": ("image", "knn_index"),
             "chatbot_model": ("chatbot", "llama_base"),
             "chatbot_tokenizer": ("chatbot", "llama_base"),
         }
