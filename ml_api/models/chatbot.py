@@ -1,147 +1,139 @@
 """
-Chatbot Model - Llama 3 8B with Arabic LoRA adapters inference
+Chatbot Model - Arabic assistant powered by Z.AI (GLM-5)
+Falls back to 503 if ZAI_API_KEY is not configured.
 """
 import time
-from typing import Optional, Dict, Any, Tuple
+from typing import Optional, Dict, Any
 
-from ..models.loader import ModelManager
+import httpx
+
+from .. import config
+
+
+# System prompt for the Arabic e-commerce assistant
+_SYSTEM_PROMPT = (
+    "أنت مساعد ذكي ومفيد لمنصة تسوق إلكترونية. "
+    "مهمتك مساعدة المستخدمين في:\n"
+    "- البحث عن المنتجات والإجابة على أسئلتهم\n"
+    "- تقديم توصيات المنتجات المناسبة لاحتياجاتهم\n"
+    "- الإجابة عن استفسارات التسوق والطلبات والشحن\n"
+    "- مقارنة المنتجات وتقديم النصائح الشرائية\n\n"
+    "تجيب دائماً باللغة العربية بأسلوب واضح ومختصر ومهني. "
+    "إذا كان السؤال بالإنجليزية، أجب باللغة العربية."
+)
 
 
 class ChatbotEngine:
     """
-    Engine for Arabic chatbot inference using Llama 3 8B with LoRA adapters.
-    Uses lazy loading to conserve GPU memory until first request.
+    Arabic chatbot engine backed by Z.AI (GLM-5).
+    No GPU or local model files required — calls the Z.AI REST API.
     """
 
-    def __init__(self):
-        self._model_manager = ModelManager()
-        self._model = None
-        self._tokenizer = None
-
-    def _ensure_model_loaded(self) -> bool:
-        """
-        Ensure the chatbot model is loaded.
-
-        Returns:
-            True if model is loaded, False otherwise
-        """
-        if self._model is not None and self._tokenizer is not None:
-            return True
-
-        result = self._model_manager.get_chatbot_model()
-        if result is None:
-            return False
-
-        self._model, self._tokenizer = result
-        return True
-
     def is_model_loaded(self) -> bool:
-        """Check if chatbot model is loaded."""
-        return self._model_manager.is_model_loaded("chatbot_model")
+        """Z.AI is always 'ready' as long as the API key is configured."""
+        return bool(config.ZAI_API_KEY)
 
     def get_model_status(self) -> Dict[str, str]:
-        """Get the loading status of chatbot models."""
-        status = self._model_manager.get_status()
-        return status.get("chatbot", {})
+        status = "loaded" if config.ZAI_API_KEY else "not_configured"
+        return {"llama_base": status, "lora_adapter": status}
 
     def generate_response(
         self,
         message: str,
         max_tokens: int = 256,
-        temperature: float = 0.4,
-        system_prompt: str = "اجب علي الاتي بالعربي فقط."
+        temperature: float = 0.7,
+        system_prompt: str = _SYSTEM_PROMPT,
     ) -> Dict[str, Any]:
         """
-        Generate a response to an Arabic message.
+        Generate a response via the Z.AI chat completions API.
 
         Args:
-            message: User's input message
-            max_tokens: Maximum number of tokens to generate
-            temperature: Sampling temperature (higher = more creative)
-            system_prompt: System prompt for the model
+            message: User's message
+            max_tokens: Maximum tokens to generate
+            temperature: Sampling temperature
+            system_prompt: System prompt (defaults to Arabic e-commerce assistant)
 
         Returns:
-            Dictionary containing response and metadata
-
-        Raises:
-            ValueError: If model is not loaded or message is empty
+            Dict with response text and metadata
         """
         if not message or not message.strip():
             raise ValueError("Message cannot be empty")
 
-        if not self._ensure_model_loaded():
-            raise ValueError("Chatbot model is not loaded. Check GPU availability and model paths.")
+        if not config.ZAI_API_KEY:
+            raise ValueError(
+                "Chatbot model is not loaded. ZAI_API_KEY environment variable is not set."
+            )
 
         start_time = time.time()
 
-        try:
-            import torch
-
-            # Format messages using chat template
-            messages = [
+        payload = {
+            "model": config.ZAI_MODEL,
+            "messages": [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": message}
-            ]
+                {"role": "user", "content": message},
+            ],
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "stream": False,
+            # Disable chain-of-thought thinking output for glm-4.7-flash
+            "thinking": {"type": "disabled"},
+        }
 
-            # Apply chat template
-            input_ids = self._tokenizer.apply_chat_template(
-                messages,
-                add_generation_prompt=True,
-                return_tensors="pt"
-            ).to(self._model.device)
+        headers = {
+            "Authorization": f"Bearer {config.ZAI_API_KEY}",
+            "Content-Type": "application/json",
+            "Accept-Language": "ar,en",
+        }
 
-            # Define termination tokens
-            terminators = [
-                self._tokenizer.eos_token_id,
-                self._tokenizer.convert_tokens_to_ids("<|eot_id|>")
-            ]
-
-            # Generate response
-            with torch.no_grad():
-                outputs = self._model.generate(
-                    input_ids,
-                    max_new_tokens=max_tokens,
-                    eos_token_id=terminators,
-                    do_sample=True,
-                    temperature=temperature,
-                    pad_token_id=self._tokenizer.eos_token_id
+        try:
+            with httpx.Client(timeout=60.0) as client:
+                resp = client.post(
+                    f"{config.ZAI_API_BASE}/chat/completions",
+                    json=payload,
+                    headers=headers,
                 )
-
-            # Decode response (skip input tokens)
-            response_tokens = outputs[0][input_ids.shape[-1]:]
-            response_text = self._tokenizer.decode(response_tokens, skip_special_tokens=True)
+                resp.raise_for_status()
+                data = resp.json()
 
             generation_time = time.time() - start_time
-            tokens_generated = len(response_tokens)
+            message = data["choices"][0]["message"]
+
+            # GLM thinking models: final answer is in `content`, chain-of-thought in `reasoning_content`
+            content = message.get("content") or ""
+            reasoning = message.get("reasoning_content") or ""
+
+            # Handle list-format content (multimodal)
+            if isinstance(content, list):
+                content = " ".join(
+                    part.get("text", "") for part in content if isinstance(part, dict)
+                )
+
+            # If content is all reasoning/thinking (GLM-4.7-flash style), extract final answer.
+            # The final answer follows the thinking block, often after a blank line or "---".
+            response_text = content.strip()
+            if reasoning:
+                # reasoning_content has the thinking; content has the final answer
+                response_text = content.strip() or reasoning.strip()
+
+            tokens_generated = data.get("usage", {}).get("completion_tokens", len(response_text.split()))
 
             return {
                 "response": response_text.strip(),
                 "tokens_generated": tokens_generated,
                 "generation_time_ms": int(generation_time * 1000),
-                "model": "llama-3-8b-arabic",
+                "model": config.ZAI_MODEL,
                 "temperature": temperature,
-                "max_tokens": max_tokens
+                "max_tokens": max_tokens,
             }
 
+        except httpx.HTTPStatusError as e:
+            raise ValueError(f"Z.AI API error {e.response.status_code}: {e.response.text}")
         except Exception as e:
             raise ValueError(f"Error generating response: {str(e)}")
 
     def unload_model(self) -> bool:
-        """
-        Unload the chatbot model to free GPU memory.
-
-        Returns:
-            True if model was unloaded, False otherwise
-        """
-        if self._model is None:
-            return False
-
-        self._model_manager.unload_model("chatbot_model")
-        self._model_manager.unload_model("chatbot_tokenizer")
-        self._model = None
-        self._tokenizer = None
-
-        return True
+        """No local model to unload — always returns False."""
+        return False
 
 
 # Singleton instance

@@ -73,6 +73,11 @@ LORA_ADAPTER_PATH = os.environ.get("LORA_ADAPTER_PATH", str(CHATBOT_DIR / "llama
 # HuggingFace Token
 HF_TOKEN = os.environ.get("HF_TOKEN", None)
 
+# Z.AI API (GLM-5 Arabic chatbot — Cloud Run friendly, no GPU needed)
+ZAI_API_KEY = os.environ.get("ZAI_API_KEY", None)
+ZAI_API_BASE = "https://api.z.ai/api/paas/v4"
+ZAI_MODEL = os.environ.get("ZAI_MODEL", "glm-4.5")
+
 # =============================================================================
 # API Settings
 # =============================================================================

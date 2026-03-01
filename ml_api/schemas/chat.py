@@ -14,9 +14,9 @@ class ChatRequest(BaseModel):
         description="User's message in Arabic"
     )
     max_tokens: int = Field(
-        default=256,
+        default=1024,
         ge=1,
-        le=1024,
+        le=4096,
         description="Maximum number of tokens to generate"
     )
     temperature: float = Field(
