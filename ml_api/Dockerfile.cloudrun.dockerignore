@@ -1,0 +1,81 @@
+# Custom .dockerignore for Dockerfile.cloudrun
+# This ALLOWS saved_models and model files (unlike the default .dockerignore)
+# Docker uses this file automatically when building with -f Dockerfile.cloudrun
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+tests/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+data/users.db
+
+# Logs
+*.log
+logs/
+
+# Documentation
+*.md
+docs/
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+
+# Jupyter notebooks
+*.ipynb
+.ipynb_checkpoints/
+
+# Large data files NOT needed in image
+data/
+*.csv
+*.zip
+*.tar.gz
+
+# All saved_models are copied from the previous Docker image during build
+# (avoids re-uploading 379MB on every code change)
+saved_models/
+
+# OS files
+Thumbs.db

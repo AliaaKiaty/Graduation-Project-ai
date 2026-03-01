@@ -1,0 +1,29 @@
+steps:
+  # Replace .dockerignore with the Cloud Run version
+  - name: 'bash'
+    args: ['-c', 'cp Dockerfile.cloudrun.dockerignore .dockerignore']
+
+  # Pull previous image so COPY --from=model-cache works (models stay in registry)
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'pull'
+      - 'me-central1-docker.pkg.dev/project-caba28d9-9df4-468d-87f/ml-api/ml-api:latest'
+
+  # Build new image — models come from previous image, not local upload
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-f'
+      - 'Dockerfile.cloudrun'
+      - '-t'
+      - 'me-central1-docker.pkg.dev/project-caba28d9-9df4-468d-87f/ml-api/ml-api:latest'
+      - '.'
+
+images:
+  - 'me-central1-docker.pkg.dev/project-caba28d9-9df4-468d-87f/ml-api/ml-api:latest'
+
+options:
+  machineType: 'E2_HIGHCPU_8'
+  diskSizeGb: 50
+
+timeout: '3600s'

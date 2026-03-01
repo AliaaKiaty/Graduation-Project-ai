@@ -1,5 +1,8 @@
 # Cloud Run Dockerfile — bakes models into the image
+# Models are copied from the previous image (not uploaded from local machine)
 # No GPU/chatbot support (returns 503 gracefully)
+ARG PREV_IMAGE=me-central1-docker.pkg.dev/project-caba28d9-9df4-468d-87f/ml-api/ml-api:latest
+FROM ${PREV_IMAGE} AS model-cache
 FROM python:3.10-slim
 
 # Prevent Python from writing .pyc and enable unbuffered output
@@ -36,9 +39,9 @@ COPY api/ ./ml_api/api/
 COPY schemas/ ./ml_api/schemas/
 COPY scripts/ ./ml_api/scripts/
 
-# Copy saved models (recommendation + image only, no chatbot)
-COPY saved_models/recommendation/ ./ml_api/saved_models/recommendation/
-COPY saved_models/image/ ./ml_api/saved_models/image/
+# Copy saved models from previous image (avoids re-uploading 379MB each build)
+COPY --from=model-cache /app/ml_api/saved_models/recommendation/ ./ml_api/saved_models/recommendation/
+COPY --from=model-cache /app/ml_api/saved_models/image/ ./ml_api/saved_models/image/
 
 # Create directories that may be needed at runtime
 RUN mkdir -p /app/ml_api/saved_models/chatbot /app/ml_api/logs /app/ml_api/data && \
