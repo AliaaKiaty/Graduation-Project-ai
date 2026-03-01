@@ -276,6 +276,40 @@ async def get_model_metadata(
         )
 
 
+# ============================================================================
+# SEED DATA ENDPOINT
+# ============================================================================
+
+@router.post("/seed", status_code=status.HTTP_200_OK)
+@limiter.limit("5/hour")
+async def seed_database(
+    request: Request,
+    current_user: Annotated[TokenUser, Depends(require_admin)],
+    clear: bool = False,
+):
+    """
+    Insert test seed data into the database.
+
+    Inserts 8 categories, 40 products, ~300 user interactions, and
+    product_embeddings (cluster IDs predicted by the live TF-IDF + KMeans model).
+
+    Args:
+        clear: If true, delete existing seed records before inserting.
+
+    Returns:
+        Summary of inserted/skipped records.
+    """
+    try:
+        from ..scripts.seed_data import seed
+        result = seed(clear_existing=clear)
+        return {"status": "ok", "summary": result}
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Seed failed: {str(e)}"
+        )
+
+
 @router.delete("/models/{model_id}", status_code=status.HTTP_204_NO_CONTENT)
 @limiter.limit("100/minute")
 async def deactivate_model(
