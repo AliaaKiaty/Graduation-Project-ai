@@ -45,21 +45,17 @@ def get_db():
 
 def init_db():
     """
-    Initialize database — create only ML-specific tables.
-    Does NOT create or alter .NET-managed tables (Products, ProductCategories, UserInteraction).
-    Uses checkfirst=True to avoid errors if tables already exist.
+    Initialize database — create all tables if they don't exist.
+    .NET-managed tables (Products, ProductCategories, UserInteraction) are created
+    here when the .NET backend hasn't run yet (standalone mode).
+    Uses checkfirst=True so existing tables are never altered.
     Wrapped in try/except to handle race conditions with multiple workers.
     """
-    # Import ML-owned models to register them with SQLAlchemy
-    from .models.db_models import ProductEmbedding, ModelMetadata
+    # Import all models to register them with SQLAlchemy
+    from .models.db_models import ProductEmbedding, ModelMetadata, Product, ProductCategory, UserInteraction  # noqa: F401
 
-    # Only create ML-owned tables (product_embeddings, model_metadata)
-    ml_tables = [
-        ProductEmbedding.__table__,
-        ModelMetadata.__table__,
-    ]
     try:
-        Base.metadata.create_all(bind=engine, tables=ml_tables, checkfirst=True)
+        Base.metadata.create_all(bind=engine, checkfirst=True)
     except Exception as e:
         # Handle race condition when multiple workers try to create tables simultaneously
         print(f"Note: DB init encountered an error (likely concurrent init): {e}")

@@ -19,6 +19,47 @@ router = APIRouter()
 
 
 # ============================================================================
+# DATABASE MIGRATION ENDPOINT
+# ============================================================================
+
+@router.post("/migrate", status_code=status.HTTP_200_OK)
+@limiter.limit("10/minute")
+async def run_migration(
+    request: Request,
+    current_user: Annotated[TokenUser, Depends(require_admin)],
+):
+    """
+    Explicitly create all database tables (idempotent — safe to run repeatedly).
+    Use this if the automatic startup migration failed.
+    """
+    from ..database import Base, engine
+    from ..models.db_models import (  # noqa: F401 — imports register with Base.metadata
+        ProductEmbedding, ModelMetadata, Product, ProductCategory, UserInteraction
+    )
+    from sqlalchemy import inspect as sa_inspect
+
+    results = {}
+    error = None
+
+    try:
+        Base.metadata.create_all(bind=engine, checkfirst=True)
+
+        inspector = sa_inspect(engine)
+        for table_name in ["ProductCategories", "Products", "UserInteraction",
+                           "product_embeddings", "model_metadata"]:
+            results[table_name] = inspector.has_table(table_name)
+
+    except Exception as e:
+        error = str(e)
+
+    return {
+        "status": "error" if error else "ok",
+        "error": error,
+        "tables_exist": results,
+    }
+
+
+# ============================================================================
 # MODEL MANAGEMENT ENDPOINTS
 # ============================================================================
 
