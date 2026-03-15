@@ -85,6 +85,10 @@ def migrate(verbose: bool = True) -> dict:
             steps.append(_run(conn,
                 'UPDATE "ProductCategories" SET "NameEn" = "Name" WHERE "NameEn" IS NULL AND "Name" IS NOT NULL',
                 'ProductCategories: copy Name → NameEn'))
+            # Make legacy Name column nullable (v2 uses NameEn/NameAr instead)
+            steps.append(_run(conn,
+                'ALTER TABLE "ProductCategories" ALTER COLUMN "Name" DROP NOT NULL',
+                'ProductCategories.Name drop NOT NULL'))
 
             # ── Products ──────────────────────────────────────────────────
             steps.append(_run(conn,
@@ -121,6 +125,13 @@ def migrate(verbose: bool = True) -> dict:
             steps.append(_run(conn,
                 'UPDATE "Products" SET "DescriptionEn" = "Description" WHERE "DescriptionEn" IS NULL AND "Description" IS NOT NULL',
                 'Products: copy Description → DescriptionEn'))
+            # Make legacy Name/Description nullable (v2 uses NameEn/NameAr instead)
+            steps.append(_run(conn,
+                'ALTER TABLE "Products" ALTER COLUMN "Name" DROP NOT NULL',
+                'Products.Name drop NOT NULL'))
+            steps.append(_run(conn,
+                'ALTER TABLE "Products" ALTER COLUMN "Description" DROP NOT NULL',
+                'Products.Description drop NOT NULL'))
 
             # ── UserInteraction ───────────────────────────────────────────
             steps.append(_run(conn,
