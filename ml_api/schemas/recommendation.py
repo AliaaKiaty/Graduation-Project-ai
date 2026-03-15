@@ -137,8 +137,10 @@ class ContentBasedResponse(BaseModel):
 class ProductResponse(BaseModel):
     """Schema for product response (read-only from .NET backend)"""
     id: int
-    name: str
-    description: Optional[str] = None
+    name: str                          # NameAr preferred, falls back to NameEn
+    name_en: Optional[str] = None
+    name_ar: Optional[str] = None
+    description: Optional[str] = None  # DescriptionEn preferred, falls back to Description
     category_id: Optional[int] = None
     category_name: Optional[str] = None
     price: Optional[Decimal] = None
@@ -156,7 +158,9 @@ class ProductResponse(BaseModel):
 class CategoryResponse(BaseModel):
     """Schema for category response (read-only from .NET backend)"""
     id: int
-    name: str
+    name: str                  # NameAr preferred, falls back to NameEn
+    name_en: Optional[str] = None
+    name_ar: Optional[str] = None
     image: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)

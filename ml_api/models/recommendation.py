@@ -50,12 +50,14 @@ class RecommendationEngine:
             query = (
                 db.query(
                     Product.Id,
-                    Product.Name,
+                    Product.NameEn,
+                    Product.NameAr,
                     Product.ImageUrl,
                     Product.Price,
                     func.count(UserInteraction.Id).label('rating_count'),
                     func.avg(UserInteraction.Rating).label('avg_rating'),
-                    ProductCategory.Name.label('category_name')
+                    ProductCategory.NameEn.label('category_name_en'),
+                    ProductCategory.NameAr.label('category_name_ar'),
                 )
                 .join(UserInteraction, Product.Id == UserInteraction.ProductID)
                 .outerjoin(ProductCategory, Product.CategoryId == ProductCategory.Id)
@@ -68,7 +70,11 @@ class RecommendationEngine:
 
             # Group by product and order by rating count
             query = (
-                query.group_by(Product.Id, Product.Name, Product.ImageUrl, Product.Price, ProductCategory.Name)
+                query.group_by(
+                    Product.Id, Product.NameEn, Product.NameAr,
+                    Product.ImageUrl, Product.Price,
+                    ProductCategory.NameEn, ProductCategory.NameAr
+                )
                 .order_by(func.count(UserInteraction.Id).desc())
                 .limit(top_n)
             )
@@ -79,12 +85,12 @@ class RecommendationEngine:
             recommendations = [
                 {
                     "product_id": row.Id,
-                    "product_name": row.Name,
+                    "product_name": row.NameAr or row.NameEn or "",
                     "image_url": row.ImageUrl,
                     "price": float(row.Price) if row.Price else None,
                     "rating_count": row.rating_count,
                     "average_rating": float(row.avg_rating) if row.avg_rating else None,
-                    "category_name": row.category_name,
+                    "category_name": row.category_name_ar or row.category_name_en,
                     "rank": idx + 1
                 }
                 for idx, row in enumerate(results)
@@ -136,7 +142,10 @@ class RecommendationEngine:
                 raise ValueError("Collaborative filtering models not loaded")
 
             # Get input product from database
-            input_product = db.query(Product).filter(Product.Id == product_id).first()
+            input_product = db.query(Product).filter(
+                Product.Id == product_id,
+                (Product.IsDeleted == False) | (Product.IsDeleted == None)  # noqa: E712
+            ).first()
             if not input_product:
                 raise KeyError(f"Product with ID {product_id} not found")
 
@@ -170,7 +179,7 @@ class RecommendationEngine:
             # Fetch product details from database
             ids = [pid for pid, _ in recommended_ids]
             query = (
-                db.query(Product, ProductCategory.Name.label('category_name'))
+                db.query(Product, ProductCategory.NameAr.label('category_name'))
                 .outerjoin(ProductCategory, Product.CategoryId == ProductCategory.Id)
                 .filter(Product.Id.in_(ids))
             )
@@ -191,7 +200,7 @@ class RecommendationEngine:
                     product, category_name = product_map[pid]
                     recommendations.append({
                         "product_id": product.Id,
-                        "product_name": product.Name,
+                        "product_name": product.NameAr or product.NameEn or "",
                         "image_url": product.ImageUrl,
                         "price": float(product.Price) if product.Price else None,
                         "correlation_score": round(correlation_score, 4),
@@ -203,7 +212,7 @@ class RecommendationEngine:
 
             return {
                 "input_product_id": input_product.Id,
-                "input_product_name": input_product.Name,
+                "input_product_name": input_product.NameAr or input_product.NameEn or "",
                 "recommendations": recommendations
             }
 
@@ -263,7 +272,7 @@ class RecommendationEngine:
 
             # Fetch products from this cluster (via ProductEmbedding table)
             query = (
-                db.query(Product, ProductCategory.Name.label('category_name'))
+                db.query(Product, ProductCategory.NameAr.label('category_name'))
                 .join(ProductEmbedding, Product.Id == ProductEmbedding.product_id)
                 .outerjoin(ProductCategory, Product.CategoryId == ProductCategory.Id)
                 .filter(ProductEmbedding.cluster_id == predicted_cluster)
@@ -281,10 +290,11 @@ class RecommendationEngine:
             for idx, row in enumerate(products):
                 product = row.Product
                 category_name = row.category_name
+                desc = product.DescriptionEn or product.Description or ""
                 recommendations.append({
                     "product_id": product.Id,
-                    "product_name": product.Name,
-                    "product_description": product.Description[:200] if product.Description else None,
+                    "product_name": product.NameAr or product.NameEn or "",
+                    "product_description": desc[:200] if desc else None,
                     "image_url": product.ImageUrl,
                     "category_name": category_name,
                     "rank": idx + 1

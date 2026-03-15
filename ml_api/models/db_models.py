@@ -2,7 +2,7 @@
 Database models for ML API
 Read-only mirrors of the real .NET backend schema + ML-owned tables
 """
-from sqlalchemy import Column, Integer, String, Text, Numeric, Boolean, DateTime, BigInteger, Float, ForeignKey, CheckConstraint, UniqueConstraint, Index
+from sqlalchemy import Column, Integer, String, Text, Numeric, Boolean, DateTime, BigInteger, Float, ForeignKey, LargeBinary, Index
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from sqlalchemy.dialects.postgresql import JSON
@@ -21,14 +21,19 @@ class ProductCategory(Base):
     __tablename__ = "ProductCategories"
 
     Id = Column("Id", Integer, primary_key=True)
-    Name = Column("Name", String(255), nullable=False)
+    NameEn = Column("NameEn", String(255), nullable=True)
+    NameAr = Column("NameAr", String(255), nullable=True)
     Image = Column("Image", String(1000), nullable=True)
+    CreatedAt = Column("CreatedAt", DateTime, nullable=True)
+    CreatedBy = Column("CreatedBy", String(450), nullable=True)
+    IsDeleted = Column("IsDeleted", Boolean, nullable=True, default=False)
+    UpdatedAt = Column("UpdatedAt", DateTime, nullable=True)
 
     # Relationships (read-only)
     products = relationship("Product", back_populates="category", viewonly=True)
 
     def __repr__(self):
-        return f"<ProductCategory(Id={self.Id}, Name='{self.Name}')>"
+        return f"<ProductCategory(Id={self.Id}, NameEn='{self.NameEn}')>"
 
 
 class Product(Base):
@@ -36,13 +41,21 @@ class Product(Base):
     __tablename__ = "Products"
 
     Id = Column("Id", Integer, primary_key=True)
-    Name = Column("Name", String(500), nullable=False)
+    NameEn = Column("NameEn", String(500), nullable=True)
+    NameAr = Column("NameAr", String(500), nullable=True)
     ImageUrl = Column("ImageUrl", String(1000), nullable=True)
     Quantity = Column("Quantity", Integer, nullable=True)
     Price = Column("Price", Numeric(18, 2), nullable=True)
-    Description = Column("Description", Text, nullable=True)
+    Description = Column("Description", Text, nullable=True)       # legacy field
+    DescriptionEn = Column("DescriptionEn", Text, nullable=True)
+    DescriptionAr = Column("DescriptionAr", Text, nullable=True)
     SellerID = Column("SellerID", String(450), nullable=True)
     CategoryId = Column("CategoryId", Integer, ForeignKey("ProductCategories.Id"), nullable=True)
+    CreatedAt = Column("CreatedAt", DateTime, nullable=True)
+    CreatedBy = Column("CreatedBy", String(450), nullable=True)
+    IsDeleted = Column("IsDeleted", Boolean, nullable=True, default=False)
+    UpdatedAt = Column("UpdatedAt", DateTime, nullable=True)
+    RowVersion = Column("RowVersion", LargeBinary, nullable=True)
 
     # Relationships (read-only for .NET tables)
     category = relationship("ProductCategory", back_populates="products", viewonly=True)
@@ -52,7 +65,54 @@ class Product(Base):
     embedding = relationship("ProductEmbedding", back_populates="product", uselist=False)
 
     def __repr__(self):
-        return f"<Product(Id={self.Id}, Name='{self.Name[:50]}')>"
+        name = self.NameEn or self.NameAr or ""
+        return f"<Product(Id={self.Id}, Name='{name[:50]}')>"
+
+
+class RawMaterialCategory(Base):
+    """Read-only mirror of .NET RawMaterialCategories table"""
+    __tablename__ = "RawMaterialCategories"
+
+    Id = Column("Id", Integer, primary_key=True)
+    NameEn = Column("NameEn", String(255), nullable=True)
+    NameAr = Column("NameAr", String(255), nullable=True)
+    Image = Column("Image", String(1000), nullable=True)
+    CreatedAt = Column("CreatedAt", DateTime, nullable=True)
+    CreatedBy = Column("CreatedBy", String(450), nullable=True)
+    IsDeleted = Column("IsDeleted", Boolean, nullable=True, default=False)
+    UpdatedAt = Column("UpdatedAt", DateTime, nullable=True)
+
+    # Relationships (read-only)
+    raw_materials = relationship("RawMaterial", back_populates="category", viewonly=True)
+
+    def __repr__(self):
+        return f"<RawMaterialCategory(Id={self.Id}, NameEn='{self.NameEn}')>"
+
+
+class RawMaterial(Base):
+    """Read-only mirror of .NET RawMaterials table"""
+    __tablename__ = "RawMaterials"
+
+    Id = Column("Id", Integer, primary_key=True)
+    NameEn = Column("NameEn", String(500), nullable=True)
+    NameAr = Column("NameAr", String(500), nullable=True)
+    ImageUrl = Column("ImageUrl", String(1000), nullable=True)
+    Quantity = Column("Quantity", Integer, nullable=True)
+    Price = Column("Price", Numeric(18, 2), nullable=True)
+    DescriptionEn = Column("DescriptionEn", Text, nullable=True)
+    DescriptionAr = Column("DescriptionAr", Text, nullable=True)
+    SupplierID = Column("SupplierID", String(450), nullable=True)
+    CategoryId = Column("CategoryId", Integer, ForeignKey("RawMaterialCategories.Id"), nullable=True)
+    IsDeleted = Column("IsDeleted", Boolean, nullable=True, default=False)
+    UpdatedAt = Column("UpdatedAt", DateTime, nullable=True)
+    RowVersion = Column("RowVersion", LargeBinary, nullable=True)
+
+    # Relationships (read-only)
+    category = relationship("RawMaterialCategory", back_populates="raw_materials", viewonly=True)
+
+    def __repr__(self):
+        name = self.NameEn or self.NameAr or ""
+        return f"<RawMaterial(Id={self.Id}, Name='{name[:50]}')>"
 
 
 class UserInteraction(Base):
@@ -62,10 +122,14 @@ class UserInteraction(Base):
     Id = Column("Id", Integer, primary_key=True)
     UserId = Column("UserId", String(450), nullable=True)
     ProductID = Column("ProductID", Integer, ForeignKey("Products.Id"), nullable=True)
-    RawMaterialID = Column("RawMaterialID", Integer, nullable=True)
+    RawMaterialID = Column("RawMaterialID", Integer, ForeignKey("RawMaterials.Id"), nullable=True)
     IsFavourite = Column("IsFavourite", Boolean, nullable=True)
     Rating = Column("Rating", Integer, nullable=True)
     Review = Column("Review", Text, nullable=True)
+    CreatedAt = Column("CreatedAt", DateTime, nullable=True)
+    CreatedBy = Column("CreatedBy", String(450), nullable=True)
+    IsDeleted = Column("IsDeleted", Boolean, nullable=True, default=False)
+    UpdatedAt = Column("UpdatedAt", DateTime, nullable=True)
     InteractionDate = Column("InteractionDate", DateTime, nullable=True)
     TargetUserId = Column("TargetUserId", String(450), nullable=True)
 
@@ -130,8 +194,6 @@ class ModelMetadata(Base):
     notes = Column(Text)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
 
-    # Index for quick lookup by model type and active status
-    # Note: On PostgreSQL, application logic enforces one active model per type
     __table_args__ = (
         Index('idx_model_type_active', 'model_type', 'is_active'),
     )

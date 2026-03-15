@@ -194,14 +194,16 @@ async def list_products(
     Requires authentication.
     """
     try:
-        query = db.query(Product, ProductCategory.Name.label('category_name')).outerjoin(
+        query = db.query(Product, ProductCategory.NameAr.label('category_name')).outerjoin(
             ProductCategory, Product.CategoryId == ProductCategory.Id
         )
 
         if search:
             search_filter = f"%{search}%"
             query = query.filter(
-                (Product.Name.ilike(search_filter)) |
+                (Product.NameEn.ilike(search_filter)) |
+                (Product.NameAr.ilike(search_filter)) |
+                (Product.DescriptionEn.ilike(search_filter)) |
                 (Product.Description.ilike(search_filter))
             )
 
@@ -216,8 +218,10 @@ async def list_products(
             category_name = row.category_name
             result.append(ProductResponse(
                 id=product.Id,
-                name=product.Name,
-                description=product.Description,
+                name=product.NameAr or product.NameEn or "",
+                name_en=product.NameEn,
+                name_ar=product.NameAr,
+                description=product.DescriptionEn or product.Description,
                 category_id=product.CategoryId,
                 category_name=category_name,
                 price=product.Price,
@@ -250,7 +254,7 @@ async def get_product(
     """
     try:
         result = (
-            db.query(Product, ProductCategory.Name.label('category_name'))
+            db.query(Product, ProductCategory.NameAr.label('category_name'))
             .outerjoin(ProductCategory, Product.CategoryId == ProductCategory.Id)
             .filter(Product.Id == product_id)
             .first()
@@ -267,8 +271,10 @@ async def get_product(
 
         return ProductResponse(
             id=product.Id,
-            name=product.Name,
-            description=product.Description,
+            name=product.NameAr or product.NameEn or "",
+            name_en=product.NameEn,
+            name_ar=product.NameAr,
+            description=product.DescriptionEn or product.Description,
             category_id=product.CategoryId,
             category_name=category_name,
             price=product.Price,
@@ -308,7 +314,9 @@ async def list_categories(
         return [
             CategoryResponse(
                 id=cat.Id,
-                name=cat.Name,
+                name=cat.NameAr or cat.NameEn or "",
+                name_en=cat.NameEn,
+                name_ar=cat.NameAr,
                 image=cat.Image,
             )
             for cat in categories

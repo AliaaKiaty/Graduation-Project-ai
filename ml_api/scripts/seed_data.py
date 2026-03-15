@@ -42,14 +42,14 @@ from ml_api.models.db_models import (
 # ---------------------------------------------------------------------------
 
 CATEGORIES = [
-    {"Id": 1,  "Name": "العناية بالبشرة",  "Image": "https://example.com/images/skincare.jpg"},
-    {"Id": 2,  "Name": "العطور",            "Image": "https://example.com/images/perfumes.jpg"},
-    {"Id": 3,  "Name": "المكياج",           "Image": "https://example.com/images/makeup.jpg"},
-    {"Id": 4,  "Name": "العناية بالشعر",    "Image": "https://example.com/images/haircare.jpg"},
-    {"Id": 5,  "Name": "الإلكترونيات",      "Image": "https://example.com/images/electronics.jpg"},
-    {"Id": 6,  "Name": "الملابس",           "Image": "https://example.com/images/clothing.jpg"},
-    {"Id": 7,  "Name": "المنزل والمطبخ",    "Image": "https://example.com/images/home.jpg"},
-    {"Id": 8,  "Name": "الرياضة",           "Image": "https://example.com/images/sports.jpg"},
+    {"Id": 1,  "NameAr": "العناية بالبشرة",  "NameEn": "Skincare",       "Image": "https://example.com/images/skincare.jpg"},
+    {"Id": 2,  "NameAr": "العطور",            "NameEn": "Perfumes",       "Image": "https://example.com/images/perfumes.jpg"},
+    {"Id": 3,  "NameAr": "المكياج",           "NameEn": "Makeup",         "Image": "https://example.com/images/makeup.jpg"},
+    {"Id": 4,  "NameAr": "العناية بالشعر",    "NameEn": "Hair Care",      "Image": "https://example.com/images/haircare.jpg"},
+    {"Id": 5,  "NameAr": "الإلكترونيات",      "NameEn": "Electronics",    "Image": "https://example.com/images/electronics.jpg"},
+    {"Id": 6,  "NameAr": "الملابس",           "NameEn": "Clothing",       "Image": "https://example.com/images/clothing.jpg"},
+    {"Id": 7,  "NameAr": "المنزل والمطبخ",    "NameEn": "Home & Kitchen", "Image": "https://example.com/images/home.jpg"},
+    {"Id": 8,  "NameAr": "الرياضة",           "NameEn": "Sports",         "Image": "https://example.com/images/sports.jpg"},
 ]
 
 # Products: Arabic Name, English description (for TF-IDF), category_id, price
@@ -264,7 +264,8 @@ def seed(clear_existing: bool = False) -> dict:
                 continue
             db.add(ProductCategory(
                 Id=cat["Id"],
-                Name=cat["Name"],
+                NameEn=cat["NameEn"],
+                NameAr=cat["NameAr"],
                 Image=cat["Image"],
             ))
             summary["categories_inserted"] += 1
@@ -278,8 +279,8 @@ def seed(clear_existing: bool = False) -> dict:
                 continue
             db.add(Product(
                 Id=prod_id,
-                Name=name,
-                Description=description,
+                NameAr=name,          # seed name is Arabic
+                DescriptionEn=description,
                 CategoryId=cat_id,
                 Price=price,
                 ImageUrl=f"https://example.com/images/product-{prod_id}.jpg",
