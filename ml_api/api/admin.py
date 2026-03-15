@@ -22,6 +22,34 @@ router = APIRouter()
 # DATABASE MIGRATION ENDPOINT
 # ============================================================================
 
+@router.post("/migrate-v2", status_code=status.HTTP_200_OK)
+@limiter.limit("10/minute")
+async def run_migration_v2(
+    request: Request,
+    current_user: Annotated[TokenUser, Depends(require_admin)],
+):
+    """
+    Run schema v2 migration.
+
+    Alters existing .NET tables to match db schema v2:
+    - ProductCategories: add NameEn, NameAr, audit columns; copies Name → NameEn
+    - Products: add NameEn, NameAr, DescriptionEn, DescriptionAr, audit columns, RowVersion;
+                copies Name → NameEn and Description → DescriptionEn
+    - UserInteraction: add audit columns
+    - Creates RawMaterialCategories and RawMaterials tables
+    - Creates ML-owned tables (product_embeddings, model_metadata)
+
+    Safe to run multiple times — each step is idempotent.
+    """
+    from ..scripts.migrate_v2 import migrate
+    result = migrate(verbose=False)
+    return {
+        "status": "error" if result["error"] else "ok",
+        "error": result["error"],
+        "steps": result["steps"],
+    }
+
+
 @router.post("/migrate", status_code=status.HTTP_200_OK)
 @limiter.limit("10/minute")
 async def run_migration(
