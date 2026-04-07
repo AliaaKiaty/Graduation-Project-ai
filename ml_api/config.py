@@ -35,11 +35,11 @@ DATABASE_URL = os.environ.get(
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-# Connection pool settings
-DB_POOL_SIZE = int(os.environ.get("DB_POOL_SIZE", "5"))
-DB_MAX_OVERFLOW = int(os.environ.get("DB_MAX_OVERFLOW", "10"))
+# Connection pool settings — kept small to stay within RDS free-tier connection limit
+DB_POOL_SIZE = int(os.environ.get("DB_POOL_SIZE", "2"))
+DB_MAX_OVERFLOW = int(os.environ.get("DB_MAX_OVERFLOW", "3"))
 DB_POOL_TIMEOUT = int(os.environ.get("DB_POOL_TIMEOUT", "30"))
-DB_POOL_RECYCLE = int(os.environ.get("DB_POOL_RECYCLE", "3600"))
+DB_POOL_RECYCLE = int(os.environ.get("DB_POOL_RECYCLE", "300"))
 
 # =============================================================================
 # Model Paths
