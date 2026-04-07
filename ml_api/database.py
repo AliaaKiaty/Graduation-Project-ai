@@ -5,7 +5,7 @@ Only creates ML-specific tables (product_embeddings, model_metadata)
 """
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.pool import StaticPool, NullPool
 from . import config
 
 
@@ -13,18 +13,16 @@ class Base(DeclarativeBase):
     """Base class for SQLAlchemy models"""
     pass
 
-# Create SQLAlchemy engine (pool params only for non-SQLite)
+# Create SQLAlchemy engine
+# Use NullPool for Cloud Run / serverless: connections are opened per-request
+# and closed immediately after, avoiding exhausting the RDS connection limit.
 _engine_kwargs = {}
 if config.DATABASE_URL.startswith("sqlite"):
     _engine_kwargs["connect_args"] = {"check_same_thread": False}
     _engine_kwargs["poolclass"] = StaticPool
 else:
-    _engine_kwargs.update(
-        pool_size=config.DB_POOL_SIZE,
-        max_overflow=config.DB_MAX_OVERFLOW,
-        pool_timeout=config.DB_POOL_TIMEOUT,
-        pool_recycle=config.DB_POOL_RECYCLE,
-    )
+    _engine_kwargs["poolclass"] = NullPool  # no persistent pool; safe for serverless
+
 engine = create_engine(config.DATABASE_URL, **_engine_kwargs)
 
 # Create SessionLocal class
