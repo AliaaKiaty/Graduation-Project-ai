@@ -187,14 +187,16 @@ def retrain_tfidf_kmeans_model(db, models_dir: Path, version: str):
     if len(products) < 20:
         raise ValueError("Insufficient products data (need at least 20 products)")
 
-    # Extract descriptions using PascalCase column names
+    # Extract descriptions for TF-IDF (prefer English; fallback to Arabic)
     print("\n2. Preparing product descriptions...")
     product_ids = [p.Id for p in products]
     descriptions = []
     for p in products:
-        text = p.Name or ""
-        if p.Description:
-            text += " " + p.Description
+        text = p.NameEn or p.NameAr or ""
+        if p.DescriptionEn:
+            text += " " + p.DescriptionEn
+        elif p.DescriptionAr:
+            text += " " + p.DescriptionAr
         descriptions.append(text)
 
     print(f"   Prepared {len(descriptions):,} descriptions")

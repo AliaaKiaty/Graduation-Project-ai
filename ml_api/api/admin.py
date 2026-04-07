@@ -73,7 +73,7 @@ async def run_migration(
         Base.metadata.create_all(bind=engine, checkfirst=True)
 
         inspector = sa_inspect(engine)
-        for table_name in ["ProductCategories", "Products", "UserInteraction",
+        for table_name in ["productcategories", "products", "userinteractions",
                            "product_embeddings", "model_metadata"]:
             results[table_name] = inspector.has_table(table_name)
 

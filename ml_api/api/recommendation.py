@@ -204,7 +204,7 @@ async def list_products(
                 (Product.NameEn.ilike(search_filter)) |
                 (Product.NameAr.ilike(search_filter)) |
                 (Product.DescriptionEn.ilike(search_filter)) |
-                (Product.Description.ilike(search_filter))
+                (Product.DescriptionAr.ilike(search_filter))
             )
 
         if category_id is not None:
@@ -221,7 +221,7 @@ async def list_products(
                 name=product.NameAr or product.NameEn or "",
                 name_en=product.NameEn,
                 name_ar=product.NameAr,
-                description=product.DescriptionEn or product.Description,
+                description=product.DescriptionEn or product.DescriptionAr,
                 category_id=product.CategoryId,
                 category_name=category_name,
                 price=product.Price,
@@ -274,7 +274,7 @@ async def get_product(
             name=product.NameAr or product.NameEn or "",
             name_en=product.NameEn,
             name_ar=product.NameAr,
-            description=product.DescriptionEn or product.Description,
+            description=product.DescriptionEn or product.DescriptionAr,
             category_id=product.CategoryId,
             category_name=category_name,
             price=product.Price,

@@ -1,8 +1,15 @@
 """
 Database models for ML API
 Read-only mirrors of the real .NET backend schema + ML-owned tables
+
+Real backend tables use lowercase names and snake_case columns.
+Python attribute names stay PascalCase for readability; Column("db_col_name")
+maps them to the actual database column names.
 """
-from sqlalchemy import Column, Integer, String, Text, Numeric, Boolean, DateTime, BigInteger, Float, ForeignKey, LargeBinary, Index
+from sqlalchemy import (
+    Column, Integer, SmallInteger, String, Text, Numeric, Boolean,
+    DateTime, BigInteger, Float, ForeignKey, LargeBinary, Index
+)
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from sqlalchemy.dialects.postgresql import JSON
@@ -10,24 +17,23 @@ from ..database import Base
 
 
 # =============================================================================
-# READ-ONLY MIRRORS OF .NET BACKEND TABLES
-# These tables are managed by the .NET backend (EF Core).
+# READ-ONLY MIRRORS OF .NET BACKEND TABLES  (lowercase tables, lowercase cols)
+# These tables are managed by the .NET backend.
 # The ML API only reads from them — never creates/alters/deletes rows.
-# Column names use PascalCase to match ASP.NET EF Core conventions.
 # =============================================================================
 
 class ProductCategory(Base):
-    """Read-only mirror of .NET ProductCategories table"""
-    __tablename__ = "ProductCategories"
+    """Read-only mirror of .NET productcategories table"""
+    __tablename__ = "productcategories"
 
-    Id = Column("Id", Integer, primary_key=True)
-    NameEn = Column("NameEn", String(255), nullable=True)
-    NameAr = Column("NameAr", String(255), nullable=True)
-    Image = Column("Image", String(1000), nullable=True)
-    CreatedAt = Column("CreatedAt", DateTime, nullable=True)
-    CreatedBy = Column("CreatedBy", String(450), nullable=True)
-    IsDeleted = Column("IsDeleted", Boolean, nullable=True, default=False)
-    UpdatedAt = Column("UpdatedAt", DateTime, nullable=True)
+    Id = Column("id", Integer, primary_key=True)
+    NameEn = Column("nameen", String(255), nullable=False)
+    NameAr = Column("namear", String(255), nullable=True)
+    Image = Column("image", String(1000), nullable=True)
+    CreatedAt = Column("createdat", DateTime, nullable=True)
+    CreatedBy = Column("createdby", String(450), nullable=True)
+    IsDeleted = Column("isdeleted", Boolean, nullable=False, default=False)
+    UpdatedAt = Column("updatedat", DateTime, nullable=True)
 
     # Relationships (read-only)
     products = relationship("Product", back_populates="category", viewonly=True)
@@ -37,25 +43,23 @@ class ProductCategory(Base):
 
 
 class Product(Base):
-    """Read-only mirror of .NET Products table"""
-    __tablename__ = "Products"
+    """Read-only mirror of .NET products table"""
+    __tablename__ = "products"
 
-    Id = Column("Id", Integer, primary_key=True)
-    NameEn = Column("NameEn", String(500), nullable=True)
-    NameAr = Column("NameAr", String(500), nullable=True)
-    ImageUrl = Column("ImageUrl", String(1000), nullable=True)
-    Quantity = Column("Quantity", Integer, nullable=True)
-    Price = Column("Price", Numeric(18, 2), nullable=True)
-    Description = Column("Description", Text, nullable=True)       # legacy field
-    DescriptionEn = Column("DescriptionEn", Text, nullable=True)
-    DescriptionAr = Column("DescriptionAr", Text, nullable=True)
-    SellerID = Column("SellerID", String(450), nullable=True)
-    CategoryId = Column("CategoryId", Integer, ForeignKey("ProductCategories.Id"), nullable=True)
-    CreatedAt = Column("CreatedAt", DateTime, nullable=True)
-    CreatedBy = Column("CreatedBy", String(450), nullable=True)
-    IsDeleted = Column("IsDeleted", Boolean, nullable=True, default=False)
-    UpdatedAt = Column("UpdatedAt", DateTime, nullable=True)
-    RowVersion = Column("RowVersion", LargeBinary, nullable=True)
+    Id = Column("id", Integer, primary_key=True)
+    NameEn = Column("nameen", String(500), nullable=False)
+    NameAr = Column("namear", String(500), nullable=True)
+    ImageUrl = Column("imageurl", String(1000), nullable=True)
+    Quantity = Column("quantity", Integer, nullable=True)
+    Price = Column("price", Numeric(18, 2), nullable=False)
+    DescriptionEn = Column("descriptionen", Text, nullable=True)
+    DescriptionAr = Column("descriptionar", Text, nullable=True)
+    SellerID = Column("sellerid", String(450), nullable=False)
+    CategoryId = Column("categoryid", Integer, ForeignKey("productcategories.id"), nullable=False)
+    CreatedAt = Column("createdat", DateTime, nullable=True)
+    CreatedBy = Column("createdby", String(450), nullable=True)
+    IsDeleted = Column("isdeleted", Boolean, nullable=False, default=False)
+    UpdatedAt = Column("updatedat", DateTime, nullable=True)
 
     # Relationships (read-only for .NET tables)
     category = relationship("ProductCategory", back_populates="products", viewonly=True)
@@ -70,17 +74,17 @@ class Product(Base):
 
 
 class RawMaterialCategory(Base):
-    """Read-only mirror of .NET RawMaterialCategories table"""
-    __tablename__ = "RawMaterialCategories"
+    """Read-only mirror of .NET rawmaterialcategories table"""
+    __tablename__ = "rawmaterialcategories"
 
-    Id = Column("Id", Integer, primary_key=True)
-    NameEn = Column("NameEn", String(255), nullable=True)
-    NameAr = Column("NameAr", String(255), nullable=True)
-    Image = Column("Image", String(1000), nullable=True)
-    CreatedAt = Column("CreatedAt", DateTime, nullable=True)
-    CreatedBy = Column("CreatedBy", String(450), nullable=True)
-    IsDeleted = Column("IsDeleted", Boolean, nullable=True, default=False)
-    UpdatedAt = Column("UpdatedAt", DateTime, nullable=True)
+    Id = Column("id", Integer, primary_key=True)
+    NameEn = Column("nameen", String(255), nullable=False)
+    NameAr = Column("namear", String(255), nullable=True)
+    Image = Column("image", String(1000), nullable=True)
+    CreatedAt = Column("createdat", DateTime, nullable=True)
+    CreatedBy = Column("createdby", String(450), nullable=True)
+    IsDeleted = Column("isdeleted", Boolean, nullable=False, default=False)
+    UpdatedAt = Column("updatedat", DateTime, nullable=True)
 
     # Relationships (read-only)
     raw_materials = relationship("RawMaterial", back_populates="category", viewonly=True)
@@ -90,22 +94,21 @@ class RawMaterialCategory(Base):
 
 
 class RawMaterial(Base):
-    """Read-only mirror of .NET RawMaterials table"""
-    __tablename__ = "RawMaterials"
+    """Read-only mirror of .NET rawmaterials table"""
+    __tablename__ = "rawmaterials"
 
-    Id = Column("Id", Integer, primary_key=True)
-    NameEn = Column("NameEn", String(500), nullable=True)
-    NameAr = Column("NameAr", String(500), nullable=True)
-    ImageUrl = Column("ImageUrl", String(1000), nullable=True)
-    Quantity = Column("Quantity", Integer, nullable=True)
-    Price = Column("Price", Numeric(18, 2), nullable=True)
-    DescriptionEn = Column("DescriptionEn", Text, nullable=True)
-    DescriptionAr = Column("DescriptionAr", Text, nullable=True)
-    SupplierID = Column("SupplierID", String(450), nullable=True)
-    CategoryId = Column("CategoryId", Integer, ForeignKey("RawMaterialCategories.Id"), nullable=True)
-    IsDeleted = Column("IsDeleted", Boolean, nullable=True, default=False)
-    UpdatedAt = Column("UpdatedAt", DateTime, nullable=True)
-    RowVersion = Column("RowVersion", LargeBinary, nullable=True)
+    Id = Column("id", Integer, primary_key=True)
+    NameEn = Column("nameen", String(500), nullable=False)
+    NameAr = Column("namear", String(500), nullable=True)
+    ImageUrl = Column("imageurl", String(1000), nullable=True)
+    Quantity = Column("quantity", Integer, nullable=True)
+    Price = Column("price", Numeric(18, 2), nullable=False)
+    DescriptionEn = Column("descriptionen", Text, nullable=True)
+    DescriptionAr = Column("descriptionar", Text, nullable=True)
+    SupplierID = Column("supplierid", String(450), nullable=False)
+    CategoryId = Column("categoryid", Integer, ForeignKey("rawmaterialcategories.id"), nullable=False)
+    IsDeleted = Column("isdeleted", Boolean, nullable=False, default=False)
+    UpdatedAt = Column("updatedat", DateTime, nullable=True)
 
     # Relationships (read-only)
     category = relationship("RawMaterialCategory", back_populates="raw_materials", viewonly=True)
@@ -116,22 +119,23 @@ class RawMaterial(Base):
 
 
 class UserInteraction(Base):
-    """Read-only mirror of .NET UserInteraction table (ratings/favourites)"""
-    __tablename__ = "UserInteraction"
+    """Read-only mirror of .NET userinteractions table (ratings/reviews).
+    NOTE: 'favourites' are in a separate 'favourites' table, not here.
+    """
+    __tablename__ = "userinteractions"   # lowercase, plural
 
-    Id = Column("Id", Integer, primary_key=True)
-    UserId = Column("UserId", String(450), nullable=True)
-    ProductID = Column("ProductID", Integer, ForeignKey("Products.Id"), nullable=True)
-    RawMaterialID = Column("RawMaterialID", Integer, ForeignKey("RawMaterials.Id"), nullable=True)
-    IsFavourite = Column("IsFavourite", Boolean, nullable=True)
-    Rating = Column("Rating", Integer, nullable=True)
-    Review = Column("Review", Text, nullable=True)
-    CreatedAt = Column("CreatedAt", DateTime, nullable=True)
-    CreatedBy = Column("CreatedBy", String(450), nullable=True)
-    IsDeleted = Column("IsDeleted", Boolean, nullable=True, default=False)
-    UpdatedAt = Column("UpdatedAt", DateTime, nullable=True)
-    InteractionDate = Column("InteractionDate", DateTime, nullable=True)
-    TargetUserId = Column("TargetUserId", String(450), nullable=True)
+    Id = Column("id", Integer, primary_key=True)
+    UserId = Column("userid", String(450), nullable=False)
+    ProductID = Column("productid", Integer, ForeignKey("products.id"), nullable=True)
+    RawMaterialID = Column("rawmaterialid", Integer, ForeignKey("rawmaterials.id"), nullable=True)
+    TargetUserId = Column("targetuserid", String(450), nullable=True)
+    Rating = Column("rating", SmallInteger, nullable=True)
+    Review = Column("review", Text, nullable=True)
+    InteractionDate = Column("interactiondate", DateTime, nullable=False)
+    CreatedAt = Column("createdat", DateTime, nullable=False)
+    CreatedBy = Column("createdby", String(450), nullable=True)
+    IsDeleted = Column("isdeleted", Boolean, nullable=False, default=False)
+    UpdatedAt = Column("updatedat", DateTime, nullable=False)
 
     # Relationships (read-only)
     product = relationship("Product", back_populates="interactions", viewonly=True)
@@ -142,8 +146,7 @@ class UserInteraction(Base):
 
 # =============================================================================
 # ML-OWNED TABLES
-# These tables are created and managed by the ML API.
-# They use snake_case naming (ML API convention).
+# Created and managed by the ML API (snake_case naming convention).
 # =============================================================================
 
 class ProductEmbedding(Base):
@@ -151,7 +154,13 @@ class ProductEmbedding(Base):
     __tablename__ = "product_embeddings"
 
     id = Column(Integer, primary_key=True, index=True)
-    product_id = Column(Integer, ForeignKey("Products.Id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
+    product_id = Column(
+        Integer,
+        ForeignKey("products.id", ondelete="CASCADE"),   # real lowercase products table
+        nullable=False,
+        unique=True,
+        index=True
+    )
     cluster_id = Column(Integer, nullable=False, index=True)
     embedding_vector = Column(JSON)
     last_updated = Column(DateTime, server_default=func.now(), nullable=False)
@@ -168,7 +177,7 @@ class ModelMetadata(Base):
     __tablename__ = "model_metadata"
 
     id = Column(Integer, primary_key=True, index=True)
-    model_type = Column(String(50), nullable=False, index=True)  # 'svd', 'tfidf', 'kmeans'
+    model_type = Column(String(50), nullable=False, index=True)  # 'svd', 'tfidf_kmeans'
     version = Column(String(50), nullable=False)
     file_path = Column(String(500), nullable=False)
     training_date = Column(DateTime, nullable=False)

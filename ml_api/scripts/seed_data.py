@@ -280,12 +280,15 @@ def seed(clear_existing: bool = False) -> dict:
             db.add(Product(
                 Id=prod_id,
                 NameAr=name,          # seed name is Arabic
+                NameEn=name,          # required NOT NULL; use Arabic name as fallback
                 DescriptionEn=description,
                 CategoryId=cat_id,
                 Price=price,
                 ImageUrl=f"https://example.com/images/product-{prod_id}.jpg",
                 Quantity=random.randint(10, 200),
                 SellerID=SELLER_ID,
+                CreatedAt=datetime.utcnow(),
+                UpdatedAt=datetime.utcnow(),
             ))
             summary["products_inserted"] += 1
         db.commit()
@@ -310,15 +313,16 @@ def seed(clear_existing: bool = False) -> dict:
                 base_rating = random.choices([3, 4, 5], weights=[2, 4, 4])[0]
                 rating = max(1, min(5, base_rating + random.randint(-1, 1)))
 
+                now = datetime.utcnow()
+                interaction_date = now - timedelta(days=random.randint(0, 180))
                 db.add(UserInteraction(
                     Id=interaction_id,
                     UserId=user_id,
                     ProductID=prod_id,
                     Rating=rating,
-                    IsFavourite=(rating >= 4),
-                    InteractionDate=datetime.utcnow() - timedelta(
-                        days=random.randint(0, 180)
-                    ),
+                    InteractionDate=interaction_date,
+                    CreatedAt=interaction_date,
+                    UpdatedAt=interaction_date,
                 ))
                 interaction_id += 1
                 summary["interactions_inserted"] += 1

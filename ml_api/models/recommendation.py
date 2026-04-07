@@ -290,7 +290,7 @@ class RecommendationEngine:
             for idx, row in enumerate(products):
                 product = row.Product
                 category_name = row.category_name
-                desc = product.DescriptionEn or product.Description or ""
+                desc = product.DescriptionEn or product.DescriptionAr or ""
                 recommendations.append({
                     "product_id": product.Id,
                     "product_name": product.NameAr or product.NameEn or "",

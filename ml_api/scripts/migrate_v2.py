@@ -195,6 +195,39 @@ def migrate(verbose: bool = True) -> dict:
                 END$$
             """, 'UserInteraction.RawMaterialID FK add'))
 
+            # ── product_embeddings FK: point to real lowercase products table ──
+            # The table was originally created with FK → "Products"("Id") (PascalCase).
+            # We need it to reference products(id) (lowercase, where real data lives).
+            steps.append(_run(conn, """
+                DO $$
+                DECLARE
+                    fk_name TEXT;
+                BEGIN
+                    -- Find existing FK constraint name pointing at "Products"
+                    SELECT conname INTO fk_name
+                    FROM pg_constraint
+                    WHERE conrelid = 'product_embeddings'::regclass
+                      AND contype = 'f';
+
+                    IF fk_name IS NOT NULL THEN
+                        EXECUTE 'ALTER TABLE product_embeddings DROP CONSTRAINT ' || quote_ident(fk_name);
+                    END IF;
+
+                    -- Re-add FK pointing at the real lowercase products table
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_constraint
+                        WHERE conrelid = 'product_embeddings'::regclass
+                          AND contype = 'f'
+                    ) THEN
+                        ALTER TABLE product_embeddings
+                            ADD CONSTRAINT product_embeddings_product_id_fkey
+                            FOREIGN KEY (product_id)
+                            REFERENCES products(id)
+                            ON DELETE CASCADE;
+                    END IF;
+                END$$
+            """, 'product_embeddings FK → products(id) fix'))
+
             # ── ML-owned tables (create_all handles idempotently) ─────────
             init_db()
             steps.append("OK  ML-owned tables (product_embeddings, model_metadata)")
