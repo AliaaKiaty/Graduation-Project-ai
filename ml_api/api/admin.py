@@ -135,6 +135,14 @@ async def trigger_retraining(
             else:
                 print("Retraining completed successfully")
                 print(f"STDOUT: {result.stdout}")
+                # Reload models from the newly saved files
+                from ..models.loader import ModelManager
+                manager = ModelManager()
+                for key in ["correlation_matrix", "product_names", "svd_model",
+                            "tfidf_vectorizer", "kmeans_model", "products_by_cluster"]:
+                    manager.unload_model(key)
+                manager.load_recommendation_models()
+                print("Recommendation models reloaded into memory")
 
         except subprocess.TimeoutExpired:
             print("Retraining timeout (exceeded 1 hour)")
@@ -150,6 +158,42 @@ async def trigger_retraining(
         "triggered_by": current_user.user_id,
         "triggered_at": datetime.now().isoformat(),
         "note": "This is a long-running operation. Check /admin/models to verify completion."
+    }
+
+
+@router.post("/reload-models", status_code=status.HTTP_200_OK)
+@limiter.limit("10/minute")
+async def reload_models(
+    request: Request,
+    current_user: Annotated[TokenUser, Depends(require_admin)],
+):
+    """
+    Reload recommendation models from disk into memory without restarting the API.
+    Use this after a retrain completes to pick up the new model files.
+
+    Requires admin authentication.
+    """
+    from ..models.loader import ModelManager
+    manager = ModelManager()
+
+    unloaded = []
+    for key in ["correlation_matrix", "product_names", "svd_model",
+                "tfidf_vectorizer", "kmeans_model", "products_by_cluster"]:
+        if manager.unload_model(key):
+            unloaded.append(key)
+
+    manager.load_recommendation_models()
+
+    loaded = [key for key in ["correlation_matrix", "product_names", "svd_model",
+                               "tfidf_vectorizer", "kmeans_model", "products_by_cluster"]
+              if manager.is_model_loaded(key)]
+
+    return {
+        "message": "Models reloaded from disk",
+        "unloaded": unloaded,
+        "loaded": loaded,
+        "reloaded_by": current_user.user_id,
+        "reloaded_at": datetime.now().isoformat(),
     }
 
 
