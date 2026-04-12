@@ -138,6 +138,13 @@ class RecommendationEngine:
             correlation_matrix = self.manager.get_model("correlation_matrix")
             product_names = self.manager.get_model("product_names")  # Maps Product.Id to index
 
+            # Self-heal: if models missing (e.g. other gunicorn worker did the retrain),
+            # try loading from disk before failing
+            if correlation_matrix is None or product_names is None:
+                self.manager.load_recommendation_models()
+                correlation_matrix = self.manager.get_model("correlation_matrix")
+                product_names = self.manager.get_model("product_names")
+
             if correlation_matrix is None or product_names is None:
                 raise ValueError("Collaborative filtering models not loaded")
 
@@ -252,6 +259,12 @@ class RecommendationEngine:
             # Load TF-IDF and KMeans models from files
             tfidf_vectorizer = self.manager.get_model("tfidf_vectorizer")
             kmeans_model = self.manager.get_model("kmeans_model")
+
+            # Self-heal: reload from disk if missing (multi-worker scenario)
+            if tfidf_vectorizer is None or kmeans_model is None:
+                self.manager.load_recommendation_models()
+                tfidf_vectorizer = self.manager.get_model("tfidf_vectorizer")
+                kmeans_model = self.manager.get_model("kmeans_model")
 
             if tfidf_vectorizer is None or kmeans_model is None:
                 raise ValueError("Content-based filtering models not loaded")
