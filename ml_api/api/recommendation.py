@@ -84,6 +84,62 @@ async def get_popular_items(
         )
 
 
+def _same_category_fallback(
+    product_id: int,
+    top_n: int,
+    db: Session,
+) -> CollaborativeResponse:
+    """
+    Temporary fallback used while the SVD model isn't available on Cloud Run.
+    Returns other products from the same category as the input product.
+    """
+    input_row = (
+        db.query(Product, ProductCategory.NameAr.label("category_name"))
+        .outerjoin(ProductCategory, Product.CategoryId == ProductCategory.Id)
+        .filter(Product.Id == product_id)
+        .first()
+    )
+
+    if not input_row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Product with ID {product_id} not found"
+        )
+
+    input_product = input_row.Product
+    input_name = input_product.NameAr or input_product.NameEn or ""
+
+    similar = (
+        db.query(Product, ProductCategory.NameAr.label("category_name"))
+        .outerjoin(ProductCategory, Product.CategoryId == ProductCategory.Id)
+        .filter(Product.CategoryId == input_product.CategoryId)
+        .filter(Product.Id != product_id)
+        .limit(top_n)
+        .all()
+    )
+
+    recs = [
+        CollaborativeItem(
+            product_id=row.Product.Id,
+            product_name=row.Product.NameAr or row.Product.NameEn or "",
+            image_url=row.Product.ImageUrl,
+            price=float(row.Product.Price) if row.Product.Price is not None else None,
+            correlation_score=0.0,
+            category_name=row.category_name,
+            rank=idx + 1,
+        )
+        for idx, row in enumerate(similar)
+    ]
+
+    return CollaborativeResponse(
+        input_product_id=input_product.Id,
+        input_product_name=input_name,
+        recommendations=recs,
+        method="same_category_fallback",
+        total_results=len(recs),
+    )
+
+
 @router.post("/collaborative", response_model=CollaborativeResponse)
 @limiter.limit(config.RATE_LIMIT_GENERAL)
 async def get_collaborative_recommendations(
@@ -94,6 +150,8 @@ async def get_collaborative_recommendations(
 ) -> CollaborativeResponse:
     """
     Get collaborative filtering recommendations using SVD and correlation matrix.
+    Falls back to same-category products when the SVD model isn't available
+    (e.g. on Cloud Run while the model loading issue is being fixed).
     Requires authentication.
     """
     try:
@@ -115,15 +173,14 @@ async def get_collaborative_recommendations(
         )
 
     except KeyError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e)
-        )
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Recommendation model not available: {str(e)}"
-        )
+        # Product not in the trained model — still try same-category fallback
+        # so the frontend gets useful data instead of a 404.
+        return _same_category_fallback(req_data.product_id, req_data.top_n, db)
+    except ValueError:
+        # Model files missing / failed to load — use DB-only fallback.
+        return _same_category_fallback(req_data.product_id, req_data.top_n, db)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
