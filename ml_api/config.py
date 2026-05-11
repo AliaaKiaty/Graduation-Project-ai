@@ -73,10 +73,21 @@ LORA_ADAPTER_PATH = os.environ.get("LORA_ADAPTER_PATH", str(CHATBOT_DIR / "llama
 # HuggingFace Token
 HF_TOKEN = os.environ.get("HF_TOKEN", None)
 
-# Z.AI API (GLM-5 Arabic chatbot — Cloud Run friendly, no GPU needed)
+# Z.AI API (legacy — kept for backwards compatibility; chatbot now uses OpenRouter)
 ZAI_API_KEY = os.environ.get("ZAI_API_KEY", None)
 ZAI_API_BASE = "https://api.z.ai/api/paas/v4"
 ZAI_MODEL = os.environ.get("ZAI_MODEL", "glm-4.5")
+
+# =============================================================================
+# Chatbot — OpenRouter Settings
+# Chat runs against OpenRouter's OpenAI-compatible API using gpt-oss-120b.
+# =============================================================================
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", None)
+OPENROUTER_BASE_URL = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "openai/gpt-oss-120b")
+OPENROUTER_HTTP_REFERER = os.environ.get("OPENROUTER_HTTP_REFERER", None)
+OPENROUTER_X_TITLE = os.environ.get("OPENROUTER_X_TITLE", "ML API Chatbot")
+OPENROUTER_TIMEOUT_SECONDS = float(os.environ.get("OPENROUTER_TIMEOUT_SECONDS", "60"))
 
 # =============================================================================
 # API Settings

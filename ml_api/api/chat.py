@@ -3,11 +3,18 @@ Chat API router
 Provides endpoints for Arabic chatbot inference using Llama 3 with LoRA
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Request
+from sqlalchemy.orm import Session
 from typing import Annotated
 
 from ..auth import get_current_user, TokenUser
-from ..models.chatbot import get_chatbot_engine, ChatbotEngine
-from ..schemas.chat import ChatRequest, ChatResponse, ChatModelStatus
+from ..database import get_db
+from ..models.chatbot import (
+    get_chatbot_engine,
+    ChatbotEngine,
+    detect_language,
+    find_suggested_product,
+)
+from ..schemas.chat import ChatRequest, ChatResponse, ChatModelStatus, SuggestedProduct
 from ..limiter import limiter
 from .. import config
 
@@ -26,6 +33,7 @@ async def chat_message(
     chat_request: ChatRequest,
     current_user: Annotated[TokenUser, Depends(get_current_user)],
     engine: ChatbotEngine = Depends(get_engine),
+    db: Session = Depends(get_db),
 ) -> ChatResponse:
     """
     Generate a response to an Arabic message using Llama 3 with LoRA adapters.
@@ -42,10 +50,15 @@ async def chat_message(
         Generated response with metadata
     """
     try:
+        language = detect_language(chat_request.message)
+        suggested = find_suggested_product(db, chat_request.message, language)
+
         result = engine.generate_response(
             message=chat_request.message,
             max_tokens=chat_request.max_tokens,
-            temperature=chat_request.temperature
+            temperature=chat_request.temperature,
+            language=language,
+            suggested_product=suggested,
         )
 
         return ChatResponse(
@@ -53,7 +66,9 @@ async def chat_message(
             response=result["response"],
             model=result["model"],
             tokens_generated=result["tokens_generated"],
-            generation_time_ms=result["generation_time_ms"]
+            generation_time_ms=result["generation_time_ms"],
+            language=result.get("language", language),
+            suggested_product=SuggestedProduct(**suggested) if suggested else None,
         )
 
     except ValueError as e:

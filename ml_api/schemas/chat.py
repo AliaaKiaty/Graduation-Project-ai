@@ -37,13 +37,28 @@ class ChatRequest(BaseModel):
     )
 
 
+class SuggestedProduct(BaseModel):
+    """A product suggested in response to a buying-intent message"""
+    product_id: int
+    product_name: str
+    image_url: Optional[str] = None
+    price: Optional[float] = None
+    category_id: Optional[int] = None
+    category_name: Optional[str] = None
+
+
 class ChatResponse(BaseModel):
     """Response schema for chat message endpoint"""
     input_message: str = Field(..., description="Original user message")
-    response: str = Field(..., description="Generated response in Arabic")
+    response: str = Field(..., description="Generated response (matches user's language)")
     model: str = Field(..., description="Model identifier used for generation")
     tokens_generated: int = Field(..., ge=0, description="Number of tokens generated")
     generation_time_ms: int = Field(..., ge=0, description="Generation time in milliseconds")
+    language: str = Field(default="ar", description="Detected language: 'ar' or 'en'")
+    suggested_product: Optional[SuggestedProduct] = Field(
+        default=None,
+        description="A randomly picked product from the requested category, when buying intent is detected"
+    )
 
     model_config = ConfigDict(
         json_schema_extra={
