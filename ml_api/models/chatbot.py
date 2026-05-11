@@ -15,14 +15,22 @@ from ..models.db_models import Product, ProductCategory
 
 ARABIC_CHAR_RE = re.compile(r"[؀-ۿݐ-ݿࢠ-ࣿﭐ-﷿ﹰ-﻿]")
 
-BUY_INTENT_KEYWORDS_EN = (
-    "buy", "purchase", "want", "looking for", "need", "shop", "shopping",
-    "recommend", "suggest", "show me", "find me", "get me",
-)
-BUY_INTENT_KEYWORDS_AR = (
-    "اشتري", "أشتري", "شراء", "أبحث", "ابحث", "أريد", "اريد", "أحتاج",
-    "احتاج", "اقترح", "رشح", "ابي", "أبي", "عايز", "عاوز", "دور", "دلني",
-)
+# Fixed catalog of product categories the LLM is allowed to choose from.
+# Each entry is (Arabic name, English name). The English name is canonical and
+# must match ProductCategory.NameEn in the database for the lookup to work.
+PRODUCT_CATEGORIES: List[tuple] = [
+    ("المجوهرات والإكسسوارات", "Jewelry & Accessories"),
+    ("الملابس والأزياء", "Clothing & Fashion"),
+    ("الحقائب والمحافظ", "Bags & Wallets"),
+    ("ديكور المنزل", "Home Decor"),
+    ("الأثاث والأعمال الخشبية", "Furniture & Woodwork"),
+    ("الفخار والسيراميك", "Pottery & Ceramics"),
+    ("المنسوجات والأعمال القماشية", "Textiles & Fabric Crafts"),
+    ("المنتجات الجلدية", "Leather Products"),
+    ("الفنون واللوحات", "Art & Paintings"),
+    ("الشموع والصابون", "Candles & Soaps"),
+]
+_CATEGORY_EN_LOOKUP = {en.lower(): en for _, en in PRODUCT_CATEGORIES}
 
 SYSTEM_PROMPT_AR = (
     "أنت مساعد ذكي ومفيد لمنصة تسوق إلكترونية. "
@@ -49,43 +57,92 @@ def detect_language(text: str) -> str:
     return "ar" if ARABIC_CHAR_RE.search(text or "") else "en"
 
 
-def _has_buy_intent(message: str, language: str) -> bool:
-    lowered = message.lower()
-    keywords = BUY_INTENT_KEYWORDS_AR if language == "ar" else BUY_INTENT_KEYWORDS_EN
-    return any(kw in lowered for kw in keywords)
+def _localized_name(obj, language: str) -> str:
+    """Pick NameAr for Arabic, NameEn otherwise, falling back to the other if missing.
+    Note: SQLAlchemy exposes the model's PascalCase attribute names; the lowercase
+    forms (nameen/namear) are the DB column names and are not Python attributes."""
+    if language == "ar":
+        return (getattr(obj, "NameAr", None) or getattr(obj, "NameEn", None) or "")
+    return (getattr(obj, "NameEn", None) or getattr(obj, "NameAr", None) or "")
 
 
-def _match_category(message: str, categories: List[ProductCategory]) -> Optional[ProductCategory]:
-    """Find the longest category name that appears as a substring in the message."""
-    lowered = message.lower()
-    best: Optional[ProductCategory] = None
-    best_len = 0
-    for cat in categories:
-        name = (cat.Name or "").strip().lower()
-        if not name:
-            continue
-        if name in lowered and len(name) > best_len:
-            best = cat
-            best_len = len(name)
-    return best
+def classify_category(message: str) -> Optional[str]:
+    """Ask the LLM which of the fixed PRODUCT_CATEGORIES best matches the user's
+    shopping intent. Returns the canonical English category name, or None if the
+    user is not shopping (or the call fails)."""
+    if not config.OPENROUTER_API_KEY or not message or not message.strip():
+        return None
+
+    cat_list = "\n".join(f"- {en} | {ar}" for ar, en in PRODUCT_CATEGORIES)
+    classifier_prompt = (
+        "You are a product category classifier for a handmade-goods store. "
+        "Read the user's message and pick the single category that best matches "
+        "their shopping intent.\n\n"
+        f"Valid categories (English name | Arabic name):\n{cat_list}\n\n"
+        "Rules:\n"
+        "- Reply with EXACTLY the English category name from the list, nothing else.\n"
+        "- If the user is not shopping, just chatting, or no category fits, reply: NONE\n"
+        "- One line, no punctuation, no explanation."
+    )
+
+    payload = {
+        "model": config.OPENROUTER_MODEL,
+        "messages": [
+            {"role": "system", "content": classifier_prompt},
+            {"role": "user", "content": message},
+        ],
+        "temperature": 0.0,
+        "max_tokens": 20,
+    }
+
+    headers = {
+        "Authorization": f"Bearer {config.OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    if config.OPENROUTER_HTTP_REFERER:
+        headers["HTTP-Referer"] = config.OPENROUTER_HTTP_REFERER
+    if config.OPENROUTER_X_TITLE:
+        headers["X-Title"] = config.OPENROUTER_X_TITLE
+
+    try:
+        with httpx.Client(timeout=config.OPENROUTER_TIMEOUT_SECONDS) as client:
+            resp = client.post(
+                f"{config.OPENROUTER_BASE_URL.rstrip('/')}/chat/completions",
+                headers=headers,
+                json=payload,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        raw = (data["choices"][0]["message"]["content"] or "").strip()
+    except Exception:
+        return None
+
+    cleaned = raw.strip().strip('"').strip("'").strip(".").strip().lower()
+    if not cleaned or cleaned == "none":
+        return None
+    return _CATEGORY_EN_LOOKUP.get(cleaned)
 
 
 def find_suggested_product(db: Session, message: str, language: str) -> Optional[Dict[str, Any]]:
-    """
-    If the user shows buying intent and mentions a known category,
-    return a random product from that category.
-    """
-    if not _has_buy_intent(message, language):
+    """Classify the user's intent via the LLM, then return a random product
+    from the chosen category (looked up by its canonical English name)."""
+    category_en = classify_category(message)
+    if not category_en:
         return None
 
-    categories = db.query(ProductCategory).all()
-    category = _match_category(message, categories)
+    category = (
+        db.query(ProductCategory)
+        .filter(func.lower(ProductCategory.NameEn) == category_en.lower())
+        .filter(ProductCategory.IsDeleted.is_(False))
+        .first()
+    )
     if category is None:
         return None
 
     product = (
         db.query(Product)
         .filter(Product.CategoryId == category.Id)
+        .filter(Product.IsDeleted.is_(False))
         .order_by(func.random())
         .first()
     )
@@ -94,11 +151,11 @@ def find_suggested_product(db: Session, message: str, language: str) -> Optional
 
     return {
         "product_id": product.Id,
-        "product_name": product.Name,
+        "product_name": _localized_name(product, language),
         "image_url": product.ImageUrl,
         "price": float(product.Price) if product.Price is not None else None,
         "category_id": category.Id,
-        "category_name": category.Name,
+        "category_name": _localized_name(category, language),
     }
 
 
